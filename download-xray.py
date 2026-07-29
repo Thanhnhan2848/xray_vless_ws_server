@@ -4,7 +4,7 @@ import zipfile
 import requests
 import shutil
 
-XRAY_VERSION = "v26.3.27"
+XRAY_VERSION = "v26.7.11"
 
 BASE_URL = f"https://github.com/XTLS/Xray-core/releases/download/{XRAY_VERSION}"
 
