@@ -8,7 +8,7 @@ Một dự án Proof of Concept (PoC) tự động bằng Python phục vụ cho
 
 ## Kiến Trúc: Bản Thử Nghiệm (PoC) vs. Hạ Tầng Thực Tế (Production)
 
-Việc hiểu rõ sự khác biệt giữa bộ suite thử nghiệm tạm thời này và các kiến trúc thương mại thực tế (như **betltone.com** hay **phuonglien4g.com**) là vô cùng quan trọng:
+Việc hiểu rõ sự khác biệt giữa bộ suite thử nghiệm tạm thời này và các kiến trúc thương mại thực tế (**phuonglien4g.com**) là vô cùng quan trọng:
 
 ### 1. Bản Thử Nghiệm Này (Môi Trường Thử Nghiệm)
 * **Hạ Tầng:** Sử dụng một Cloudflare Tunnel tạm thời được tạo động thông qua lệnh `cloudflared tunnel --url`.
@@ -129,4 +129,4 @@ WEBHOOK_URL=
 
 ## Lời Cảm Ơn
 
-Bằng cách dịch ngược (reverse engineering) các dịch vụ bypass 4G thương mại như `betltone.com`, `phuonglien4g.com` và các nhà cung cấp tương tự trong cộng đồng, cơ chế cấu trúc của framework này đã được xác thực thành công.
+Bằng cách dịch ngược các dịch vụ bypass 4G thương mại trong cộng đồng, cơ chế cấu trúc của framework này đã được xác thực thành công.

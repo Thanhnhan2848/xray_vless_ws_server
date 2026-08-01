@@ -10,7 +10,7 @@ The idea of this project came from here: [The Anatomy of a Loophole: A Tech-Enth
 
 ## Architecture: PoC vs. Production Infrastructure
 
-Understanding the difference between this temporary testing suite and commercial architectures (such as **betltone.com** or **phuonglien4g.com**) is crucial:
+Understanding the difference between this temporary testing suite and commercial architectures (**phuonglien4g.com**) is crucial:
 
 ### 1. This Proof of Concept (Testing Environment)
 * **Infrastructure:** Utilizes an ephemeral Cloudflare Tunnel generated dynamically via `cloudflared tunnel --url`.
@@ -130,4 +130,4 @@ WEBHOOK_URL=
 
 ## Acknowledgements
 
-By reverse engineering commercial 4G bypass services like `betltone.com`, `phuonglien4g.com`, and similar community providers, the structural mechanics of this framework were successfully verified.
+By reverse engineering commercial 4G bypass services, the structural mechanics of this framework were successfully verified.
