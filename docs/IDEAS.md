@@ -42,7 +42,9 @@ This paradox became an obsession. I set out to unmask the hidden routing behavio
 
 To enforce localized data limits, internet service providers (ISPs) construct gatekeeping firewalls powered by **Deep Packet Inspection (DPI)**. When a device requests an outbound connection, the DPI firewall scans the outermost unencrypted frame of the TCP/TLS handshake.
 
-When the client application initiates a connection, it points directly to the target server `Address`: `api24-normal-alisg.tiktokv.com`. The carrier's automated billing firewall scans this outer frame, flags the destination as an approved, unmetered host within the TikTok data package, and smiles - granting the packet free, unthrottled clearance past the telco gateway.
+When the client application initiates a connection, the operating system first resolves `api24-normal-alisg.tiktokv.com` to a destination IP — one of TikTok's own Cloudflare Anycast addresses. The carrier's automated billing firewall appears to whitelist traffic purely by **destination IP/ASN range**: if the packet is headed to an IP block TikTok itself uses, it's waved through unmetered — no byte counted against the primary plan.
+
+Crucially, this means the firewall is **not** actually reading the SNI field inside the TLS ClientHello — because that field, in plaintext, literally says `tiktok2.phuonglien4g.com`, a hostname that has nothing to do with TikTok. If the carrier's DPI genuinely inspected the visible SNI content, this configuration would be rejected instantly; no "outer vs. inner" mismatch logic is even needed, since the giveaway is sitting right there, unencrypted, in the very first packet. The only thing being trusted here is "this IP belongs to a TikTok-adjacent CDN range" — nothing about the domain name being requested inside that connection.
 
 ### Step B: The Multi-Tenant CDN Convergence
 
@@ -61,17 +63,20 @@ The CDN edge node interprets this string immediately: *"This packet was carried 
 ```
 [ Client Device ]
        │
-       │ (Outer Wrapper Destination: api24-normal-alisg.tiktokv.com)
+       │ (Connects to a destination IP resolved from api24-normal-alisg.tiktokv.com —
+       │  a TikTok-owned Cloudflare Anycast address; SNI actually sent in the
+       │  TLS ClientHello is tiktok2.phuonglien4g.com, unrelated to TikTok)
        ▼
-[ Carrier DPI Gateway ] ─── (Sees Official TikTok API Node -> Waives Data Charging)
+[ Carrier DPI Gateway ] ─── (Only checks destination IP/ASN range -> matches TikTok's
+       │                     CDN block -> waives data charging WITHOUT reading the SNI)
        │
        │ (Packet successfully enters Cloudflare CDN Backbone)
        ▼
 [ CDN Edge Anycast Server ]
        │ 
-       ├─ Unwraps the external transport layers.
-       ├─ Discovers internal Host Header mapping: [tiktok2.phuonglien4g.com].
-       └─ Reroutes the packet away from TikTok's backend to the tenant destination.
+       ├─ Terminates the TLS connection using the presented SNI.
+       ├─ Discovers internal Host/SNI mapping: [tiktok2.phuonglien4g.com].
+       └─ Routes the packet to the tenant that owns that SNI/hostname, not TikTok's backend.
        │
        ▼ (Internal CDN Handover)
 [ Provider's VPS Node ] ───> Decodes VLESS Tunnel -> Forwards request to Open Web
@@ -84,7 +89,7 @@ The CDN edge node interprets this string immediately: *"This packet was carried 
 
 Resolving this architectural paradox revealed that this configuration is not a system bug, but rather an elegant, creative exploitation of cloud infrastructure. It takes advantage of a structural blind spot where carrier inspection systems only evaluate the *outer perimeter* of a packet while global CDNs process the *inner intent*.
 
-However, this architecture remains an ongoing game of cat-and-mouse. The moment carriers update their firewall heuristics to enforce strict deep-packet verification - validating that the external SNI matches the internal HTTP Host mapping down to the application layer - this elegant VLESS configuration will crumble instantly. Furthermore, passing unencrypted personal traffic through a foreign, unverified proxy VPS introduces profound privacy risks.
+However, this architecture remains an ongoing game of cat-and-mouse. The moment carriers stop trusting destination IP/ASN alone and start reading the SNI value that's already sitting in plaintext inside the ClientHello — checking that it actually matches a known TikTok hostname — this elegant VLESS configuration will crumble instantly. Notably, no exotic "outer vs. inner header" correlation is even required for that fix; the SNI is visible today, unencrypted, and simply isn't being checked. Furthermore, passing unencrypted personal traffic through a foreign, unverified proxy VPS introduces profound privacy risks.
 
 As the rain cleared outside, I disconnected the client application and reverted my network settings back to stock configurations. The investigation came to a satisfying close. Behind every paradox on the web lies a deeply logical narrative crafted by clever engineering - and a reminder that in the world of networking, nothing is truly free, and nothing is completely secure.
 

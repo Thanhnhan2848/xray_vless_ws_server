@@ -42,7 +42,9 @@ Nghịch lý này trở thành một nỗi ám ảnh. Tôi bắt đầu hành tr
 
 Để áp dụng các giới hạn data theo gói, các nhà mạng (ISP) xây dựng các tường lửa gác cổng được vận hành bởi công nghệ **Kiểm tra gói tin sâu (DPI - Deep Packet Inspection)**. Khi một thiết bị yêu cầu một kết nối đi ra ngoài (outbound connection), tường lửa DPI sẽ quét qua khung hình (frame) chưa mã hóa ngoài cùng của quá trình bắt tay TCP/TLS (TCP/TLS handshake).
 
-Khi ứng dụng client khởi tạo kết nối, nó trỏ trực tiếp đến địa chỉ máy chủ mục tiêu (`Address`): `api24-normal-alisg.tiktokv.com`. Tường lửa tính phí tự động của nhà mạng quét qua khung ngoài này, gắn cờ (flag) điểm đến là một máy chủ hợp lệ, nằm trong danh sách miễn phí của gói data TikTok, và "mỉm cười" cho qua - cấp quyền cho gói tin đi qua cổng telco một cách miễn phí và không bị bóp băng thông.
+Khi ứng dụng client khởi tạo kết nối, hệ điều hành trước tiên phân giải `api24-normal-alisg.tiktokv.com` ra một địa chỉ IP đích - một trong những địa chỉ Cloudflare Anycast mà chính TikTok sở hữu. Tường lửa tính phí tự động của nhà mạng dường như chỉ whitelist theo **dải IP/ASN đích**: nếu gói tin hướng tới dải IP mà TikTok đang dùng, nó sẽ được cho qua miễn phí - không tính một byte nào vào gói cước chính.
+
+Điều quan trọng là: điều này có nghĩa tường lửa **không** thực sự đọc trường SNI bên trong TLS ClientHello - vì trường đó, ở dạng plaintext, thực chất ghi rõ `tiktok2.phuonglien4g.com`, một hostname chẳng liên quan gì đến TikTok. Nếu DPI của nhà mạng thực sự kiểm tra nội dung SNI hiển thị, cấu hình này sẽ bị từ chối ngay lập tức - thậm chí không cần đến logic đối chiếu "ngoài với trong" nào cả, vì manh mối đã nằm sẵn đó, không mã hóa, ngay trong gói tin đầu tiên. Thứ duy nhất đang được tin tưởng ở đây là "IP này thuộc dải CDN gần TikTok" - chứ không phải tên miền thực sự đang được yêu cầu bên trong kết nối đó.
 
 ### Bước B: Sự Hội Tụ Trên CDN Đa Khách Thuê (Multi-Tenant CDN)
 
@@ -61,17 +63,20 @@ Edge node của CDN lập tức hiểu chuỗi ký tự này: *"Gói tin này đ
 ```
 [ Thiết Bị Client ]
        │
-       │ (Đích đến vỏ bọc ngoài: api24-normal-alisg.tiktokv.com)
+       │ (Kết nối tới IP đích được phân giải từ api24-normal-alisg.tiktokv.com -
+       │  một địa chỉ Cloudflare Anycast thuộc sở hữu TikTok; SNI thực sự gửi
+       │  trong TLS ClientHello là tiktok2.phuonglien4g.com, không liên quan TikTok)
        ▼
-[ Tường Lửa DPI Nhà Mạng ] ─── (Thấy Node API chính thức của TikTok -> Miễn phí data)
+[ Tường Lửa DPI Nhà Mạng ] ─── (Chỉ kiểm tra dải IP/ASN đích -> khớp dải CDN của
+       │                        TikTok -> miễn phí data MÀ KHÔNG đọc SNI)
        │
        │ (Gói tin tiến vào trục xương sống Cloudflare CDN thành công)
        ▼
 [ Máy Chủ CDN Edge Anycast ]
        │ 
-       ├─ Bóc tách các lớp vận chuyển bên ngoài (transport layers).
-       ├─ Phát hiện ánh xạ Host Header bên trong: [tiktok2.phuonglien4g.com].
-       └─ Chuyển hướng gói tin khỏi backend của TikTok, đưa về đích đến của khách thuê (tenant).
+       ├─ Kết thúc kết nối TLS dựa trên SNI được gửi tới.
+       ├─ Phát hiện ánh xạ SNI/Host bên trong: [tiktok2.phuonglien4g.com].
+       └─ Định tuyến gói tin tới tenant sở hữu SNI/hostname đó, không phải backend TikTok.
        │
        ▼ (Chuyển giao nội bộ trong CDN)
 [ Máy Chủ VPS Nhà Cung Cấp ] ───> Giải mã Tunnel VLESS -> Chuyển tiếp yêu cầu ra Internet
@@ -84,6 +89,6 @@ Edge node của CDN lập tức hiểu chuỗi ký tự này: *"Gói tin này đ
 
 Việc giải mã được nghịch lý kiến trúc này cho thấy cấu hình này không phải là một lỗi hệ thống (system bug), mà là một sự khai thác thông minh và đầy sáng tạo đối với hạ tầng điện toán đám mây. Nó tận dụng điểm mù cấu trúc nơi mà hệ thống kiểm tra của nhà mạng chỉ đánh giá *lớp vỏ bên ngoài* của gói tin, trong khi các CDN toàn cầu lại xử lý *mục đích cốt lõi bên trong*.
 
-Tuy nhiên, kiến trúc này vẫn là một trò chơi đuổi bắt "mèo vờn chuột" diễn ra liên tục. Ngay khi các nhà mạng cập nhật các thuật toán nhận diện tường lửa để thực thi việc xác thực gói tin sâu một cách nghiêm ngặt hơn - kiểm tra xem SNI bên ngoài có khớp với ánh xạ HTTP Host bên trong xuống tận tầng ứng dụng (application layer) hay không - cấu hình VLESS thanh thoát này sẽ sụp đổ ngay lập tức. Hơn nữa, việc truyền lưu lượng truy cập cá nhân chưa mã hóa qua một VPS proxy lạ, chưa được kiểm chứng của bên thứ ba luôn tiềm ẩn những rủi ro nghiêm trọng về quyền riêng tư.
+Tuy nhiên, kiến trúc này vẫn là một trò chơi đuổi bắt "mèo vờn chuột" diễn ra liên tục. Ngay khi nhà mạng thôi tin tưởng mù quáng vào IP/ASN đích và bắt đầu đọc giá trị SNI vốn đã nằm sẵn dạng plaintext trong ClientHello - kiểm tra xem nó có thực sự khớp với một hostname TikTok đã biết hay không - cấu hình VLESS thanh thoát này sẽ sụp đổ ngay lập tức. Đáng chú ý, việc vá lỗi này thậm chí không cần đến bất kỳ kỹ thuật đối chiếu "header ngoài với header trong" phức tạp nào - SNI vốn đã hiển thị công khai, không mã hóa, chỉ là chưa ai kiểm tra nó thôi. Hơn nữa, việc truyền lưu lượng truy cập cá nhân chưa mã hóa qua một VPS proxy lạ, chưa được kiểm chứng của bên thứ ba luôn tiềm ẩn những rủi ro nghiêm trọng về quyền riêng tư.
 
 Khi cơn mưa bên ngoài đã tạnh, tôi ngắt kết nối ứng dụng client và khôi phục cài đặt mạng của mình về mặc định. Cuộc điều tra khép lại một cách thỏa mãn. Đằng sau mỗi nghịch lý trên mạng luôn là một câu chuyện logic được xây dựng bởi kỹ nghệ kỹ thuật khéo léo - và là lời nhắc nhở rằng trong thế giới mạng, không có gì là thực sự miễn phí, và không có gì là bảo mật tuyệt đối.
