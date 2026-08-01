@@ -1,8 +1,8 @@
-# Giao Thức Bypass Xray VLESS-WS: Định Tuyến Anycast & Giả Mạo SNI (Proof of Concept)
+# Giao Thức Bypass Xray VLESS-WS: Lợi Dụng Dải IP Anycast Dùng Chung (Proof of Concept)
 
 Một dự án Proof of Concept (PoC) tự động bằng Python phục vụ cho mục đích giáo dục, trình diễn cách tận dụng **Xray-Core** và các **Cloudflare Tunnel** tạm thời (`trycloudflare.com`) để thiết lập một proxy VLESS-WebSocket an toàn. Kho lưu trữ này hoạt động như một môi trường thử nghiệm cục bộ nhằm xác thực khả năng vượt tường lửa kiểm tra gói tin sâu Layer 7 trên các mạng di động được miễn phí data (ví dụ: các gói cước TikTok) trước khi triển khai lên hạ tầng production thực tế.
 
-Ý tưởng của dự án này được khơi nguồn từ đây: [Giải Mã Lỗ Hổng: Hành Trình Khám Phá Kỹ Thuật Tách Lớp Layer-7](IDEAS_vi.MD)
+Ý tưởng của dự án này được khơi nguồn từ đây: [Giải Mã Lỗ Hổng: Hành Trình Khám Phá Kỹ Thuật Tách Lớp Layer-7](https://vincentng295.github.io/xray_vless_ws_server/IDEAS_vi)
 
 ---
 
@@ -23,22 +23,28 @@ Việc hiểu rõ sự khác biệt giữa bộ suite thử nghiệm tạm thờ
 
 ## Nguyên Lý Vận Hành Kỹ Thuật
 
-Cơ chế cốt lõi dựa trên việc tách biệt lớp vận chuyển bên ngoài (outer transport layer) khỏi ngữ cảnh định tuyến bên trong (inner routing context):
+Cơ chế cốt lõi dựa trên việc nhà mạng whitelist theo dải IP/ASN, tách biệt hoàn toàn với việc SNI/Host thực tế có được kiểm tra hay không:
 
 
 ```
 
 [ Thiết Bị Client ]
 │
-│ (SNI Vỏ Bọc Ngoài: api24-normal-alisg.tiktokv.com)
+│ (1) Phân giải DNS domain api24-normal-alisg.tiktokv.com
+│     -> ra một IP Cloudflare Anycast mà chính TikTok cũng đang dùng
 ▼
-[ Tường Lửa DPI Nhà Mạng ] ─── (Quét SNI -> Xác thực Gói TikTok -> Cho qua miễn phí)
+[ Tường Lửa / DPI Nhà Mạng ] ─── (Chỉ kiểm tra: IP/ASN đích có nằm trong dải
+│                                  whitelist TikTok/Cloudflare không? -> có -> cho qua
+│                                  miễn phí, KHÔNG kiểm tra SNI hay Host Header)
 │
-│ (Hạ cánh xuống Edge Node Cloudflare Global Anycast)
+│ (2) Gói TLS ClientHello gửi tới IP đó — SNI = your-random.trycloudflare.com
+│     (KHÔNG PHẢI api24-normal-alisg.tiktokv.com — xem main.py: trường `sni`
+│     trong link vless được set bằng tunnel host, domain tiktok chỉ dùng để
+│     phân giải ra IP đích)
 ▼
 [ Edge Node Cloudflare ]
 │
-├─ Bóc tách lớp payload TLS bên ngoài.
+├─ Kết thúc kết nối TLS dựa trên SNI (tunnel host) vừa nêu trên.
 ├─ Đọc HTTP Host Header ẩn bên trong: [your-random.trycloudflare.com].
 └─ Ánh xạ payload của host vào đường hầm (tunnel) tạm thời đang hoạt động.
 │
@@ -47,14 +53,15 @@ Cơ chế cốt lõi dựa trên việc tách biệt lớp vận chuyển bên n
 
 ```
 
-1. **Bắt Tay Vượt DPI (DPI Bypass Handshake):** Ứng dụng V2ray phía client thiết lập trường `Address` và `SNI` một cách tường minh thành một tên miền được nhà mạng miễn phí (zero-rated), chẳng hạn như `api24-normal-alisg.tiktokv.com`. Hệ thống **Kiểm tra gói tin sâu (DPI)** của nhà mạng di động gắn cờ đây là hành vi ứng dụng hợp lệ, không tính phí và cho phép đi qua tự do.
-2. **Căn Chỉnh Định Tuyến Anycast:** Vì các node API của TikTok vốn định tuyến native qua **Hạ tầng Toàn cầu Cloudflare Anycast**, nhà mạng sẽ chuyển giao gói tin một cách an toàn đến một edge node Cloudflare gần nhất.
-3. **Điều Hướng Lớp Layer 7 (Layer 7 Redirect):** Edge node mở khung vận chuyển bên ngoài, kiểm tra trường `Host Header` ẩn bên trong (`host=xxxx.trycloudflare.com`), và chuyển tiếp kết nối proxy xuống môi trường đang thực thi của bạn.
+1. **Cơ Chế Vượt DPI:** Ứng dụng V2ray phía client set trường `Address` thành một tên miền được nhà mạng miễn phí (zero-rated), chẳng hạn `api24-normal-alisg.tiktokv.com`. Domain này **chỉ dùng để tra cứu DNS** để client kết nối tới đúng IP Cloudflare Anycast mà TikTok cũng đang phân giải ra. Trường `SNI` thực sự được gửi trong TLS ClientHello lại là tunnel host Cloudflare (ví dụ `your-random.trycloudflare.com`), **không phải** domain TikTok — đây là hai trường khác nhau, được thiết kế có chủ đích như vậy.
+2. **Whitelist Theo IP/ASN, Không Phải Kiểm Tra Nội Dung:** Nhà mạng di động (MNO) dường như đang whitelist dựa trên **địa chỉ IP đích hoặc dải ASN/prefix** thuộc Cloudflare (cùng dải mà lưu lượng TikTok thật sự cũng đi qua), thay vì kiểm tra SNI hay HTTP Host header. Miễn IP đích nằm trong dải được whitelist, nhà mạng sẽ cho qua miễn phí — bất kể SNI hay Host thực sự là gì.
+3. **Trùng Dải Anycast:** Vì các node API của TikTok vốn định tuyến native qua **Hạ tầng Toàn cầu Cloudflare Anycast**, dải IP mà nhà mạng whitelist (thô, theo range) vô tình bao trùm luôn mọi tenant khác dùng chung dải anycast đó, kể cả các tunnel tạm thời.
+4. **Điều Hướng Lớp Layer 7 (Layer 7 Redirect):** Edge node kết thúc TLS dựa trên SNI được gửi tới, kiểm tra trường `Host Header` ẩn bên trong (`host=xxxx.trycloudflare.com`), và chuyển tiếp kết nối proxy xuống môi trường đang thực thi của bạn.
 
-Dựa trên phân tích kiến trúc tầng mạng, hệ thống tường lửa DPI của nhà mạng cần nâng cấp và thực thi các bộ quy tắc Heuristics sau để vá triệt để lỗ hổng Layer-7 Decoupling:
+Dựa trên phân tích trên, hệ thống tường lửa/DPI của nhà mạng cần thực thi các quy tắc sau để vá lỗ hổng này:
 
-1. Xác thực gói tin sâu xuống tầng ứng dụng: Hệ thống DPI không được chỉ dừng lại ở việc kiểm tra lớp vỏ bọc bên ngoài của gói tin (SNI/Address ở tầng vận chuyển). Tường lửa cần thực thi các thuật toán kiểm tra Heuristics nâng cao để đi sâu vào xác thực lớp dữ liệu bên trong.
-2. Đối chiếu chéo thông tin Header: Nhà mạng cần kiểm tra và bắt buộc tham số SNI bên ngoài (Outer SNI) phải trùng khớp hoàn toàn với thuộc tính HTTP Host Mapping bên trong (Inner HTTP Host Header) thuộc tầng ứng dụng (Layer 7) sau khi quá trình bắt tay TLS hoàn tất. Nếu phát hiện sự sai lệch (ví dụ: SNI ngoài là TikTok nhưng Host Header trong lại là tên miền lạ chạy trên Cloudflare), gói tin phải bị chặn ngay lập tức.
+1. Không Chỉ Whitelist Theo IP/ASN: Whitelist cả một dải IP CDN là "lưu lượng TikTok" là quá thô, vì bất kỳ tenant nào khác dùng chung dải anycast đó (Cloudflare, CloudFront, v.v.) cũng được hưởng lợi miễn phí theo. Tường lửa cần kiểm tra ít nhất SNI trong TLS ClientHello và/hoặc HTTP Host header thực sự được gửi trên kết nối, chứ không chỉ dựa vào IP đích.
+2. Đối Chiếu SNI/Host Với Danh Sách Hostname TikTok Đã Biết: Tường lửa nên xác thực rằng SNI trong TLS ClientHello (và HTTP Host header, nếu quan sát được) thực sự khớp với một hostname TikTok đã biết — thay vì mặc định rằng "IP đích nằm trong dải CDN của TikTok" nghĩa là "đây là lưu lượng TikTok". Một kết nối có SNI là hostname không liên quan (ví dụ `*.trycloudflare.com`) nhưng dùng chung dải IP với TikTok thì không nên tự động được hưởng chính sách miễn phí data.
 
 
 ---
@@ -64,7 +71,7 @@ Dựa trên phân tích kiến trúc tầng mạng, hệ thống tường lửa 
 Mặc dù bản Proof of Concept cụ thể này sử dụng hạ tầng của Cloudflare (`cloudflared` và dải IP Cloudflare Anycast) để đơn giản hóa việc triển khai cục bộ, nhưng cơ chế cốt lõi - **Tách lớp Layer 7 (Layer 7 Decoupling)** - hoàn toàn không bị giới hạn bởi một nhà cung cấp duy nhất.
 
 Về mặt kiến trúc, kỹ thuật này hoạt động tương tự trên bất kỳ mạng phân phối nội dung đa phân nhánh (Multi-tenant CDN) hoặc nền tảng Edge Computing nào có chung cấu trúc định tuyến, bao gồm:
-* **Amazon CloudFront (AWS):** Bằng cách kết hợp một SNI được miễn phí data phân giải về hạ tầng của AWS với một trường HTTP Host Header hoặc phân phối cấu hình (Distribution Origin) bên trong trỏ về tài nguyên AWS tương ứng.
+* **Amazon CloudFront (AWS):** Bằng cách kết hợp một hostname được miễn phí data phân giải về hạ tầng của AWS (chỉ dùng cho mục đích phân giải DNS / xác định dải IP đích) với một trường HTTP Host Header hoặc phân phối cấu hình (Distribution Origin) bên trong trỏ về tài nguyên AWS tương ứng.
 * **Akamai / Fastly / Gcore:** Chỉ cần Tường lửa nhà mạng (MNO) định tuyến lưu lượng lớp vỏ ngoài đến đúng các Edge Node của nhà cung cấp đó, hạ tầng biên hoàn toàn có thể bóc tách lớp payload và chuyển tiếp dữ liệu ngầm về các backend độc lập.
 
 ---
@@ -79,6 +86,29 @@ Về mặt kiến trúc, kỹ thuật này hoạt động tương tự trên b�
 
 ---
 
+## Cài Đặt & Sử Dụng
+
+Dự án mã nguồn mở này đã được viết tối ưu bằng Python, tự động tải phiên bản Xray và Cloudflared phù hợp với hệ điều hành của bạn mà không cần cài đặt thủ công.
+Mở Terminal / Command Prompt lên và chạy tuần tự các lệnh sau:
+
+```
+# Tải source code từ kho lưu trữ về máy
+git clone https://github.com/vincentng295/xray_vless_ws_server
+
+# Di chuyển vào thư mục dự án
+cd xray_vless_ws_server
+
+# Cài đặt các thư viện Python cần thiết 
+pip install -r requirements.txt
+
+# Bật server lên (Lần sau chỉ cần chạy lệnh này)
+python main.py
+```
+
+Kết quả: Sau khi chạy, hệ thống sẽ ghi cấu hình v2ray vào trong file `frp_info.config`. Bạn chỉ cần sao chép link nhập vào ứng dụng v2rayNG/Shadowrocket để sử dụng.
+
+---
+
 ## Cấu Hình Tệp Môi Trường (`.env`)
 
 ```ini
@@ -90,6 +120,8 @@ WS_HOST=trycloudflare.com
 WEBHOOK_URL=
 
 ```
+
+> **Lưu ý về tên biến:** `FAKE_SNI` là tên biến cũ được giữ lại để tương thích ngược; mặc dù tên gọi như vậy, giá trị này chỉ được dùng làm trường **Address** để phân giải DNS — nó không được gửi đi như SNI trong TLS. SNI thực sự trong bắt tay TLS là tunnel host của Cloudflare (xem `WS_HOST` và cách trường `sni=` được dựng trong hàm `print_vless_links` của `main.py`).
 
 > **Lưu ý Quan Trọng Về SNI:** Các cấu hình cũ thường dựa vào `link.e.tiktok.com`. Tuy nhiên, các bản ghi định tuyến hiện tại chỉ ra rằng `link.e.tiktok.com` được phân giải qua **Amazon CloudFront (AWS)**. Vì cơ chế tunnel của Cloudflare không thể phân giải hoặc can thiệp vào các trường host được gửi đến các tầng node đối thủ của AWS, **`api24-normal-alisg.tiktokv.com`** là bắt buộc đối với bản PoC tập trung vào Cloudflare này để đảm bảo truyền tải dữ liệu thành công tại edge.
 
