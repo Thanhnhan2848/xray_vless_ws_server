@@ -25,7 +25,7 @@ def main():
     default_configs = {
         "PORT": "127.0.0.1:8888",
         "XRAY_UUID": str(uuid.uuid4()),
-        "FAKE_SNI": "api24-normal-alisg.tiktokv.com,api24-normal-useast1a.tiktokv.com",
+        "FAKE_SNI": "api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com",
         "WS_PATH": "/tiktok4g",
         "WS_HOST": "trycloudflare.com",
         "ENABLE_WARP": "false",
