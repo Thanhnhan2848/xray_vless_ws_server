@@ -223,7 +223,7 @@ def main():
 
     print(f"[*] Launching Cloudflare Tunnel pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
     clp = subprocess.Popen(
-        [CLF_BIN, "tunnel", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
+        [CLF_BIN, "tunnel", "--protocol", "http2", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
