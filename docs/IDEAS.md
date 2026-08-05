@@ -13,7 +13,7 @@ At the time, I had a standard local mobile plan activated - specifically an unme
 Intrigued, I copied the long, complex URI:
 
 ```text
-vless://xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx@api24-normal-alisg.tiktokv.com:443?encryption=none&security=tls&headerType=none&type=grpc&allowInsecure=0&fp=chrome&sni=tiktok2.phuonglien4g.com&serviceName=PL4G#4G_FREE_SERVER
+vless://xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx@api24-normal-alisg.tiktokv.com:443?encryption=none&security=tls&headerType=none&type=grpc&allowInsecure=0&fp=chrome&sni=tiktok2.p***4g.com&serviceName=PL4G#4G_FREE_SERVER
 
 ```
 
@@ -28,7 +28,7 @@ It worked perfectly. Yet, as a programmer, this flawless success triggered an im
 When I isolated the components of the VLESS query string, I froze. The configuration presented a structural paradox that completely inverted core network routing theory:
 
 1. **The Server Address Field:** Instead of pointing to the dedicated Public IP or domain of a Virtual Private Server (VPS) leased by the third-party provider, it proudly displayed **`api24-normal-alisg.tiktokv.com`** - the official, proprietary backend node belonging to TikTok.
-2. **The SNI (Server Name Indication) Field:** Where the client was supposed to inject the whitelisted TikTok host fake header to fool the carrier's firewall, it displayed the provider's domain: **`tiktok2.phuonglien4g.com`**.
+2. **The SNI (Server Name Indication) Field:** Where the client was supposed to inject the whitelisted TikTok host fake header to fool the carrier's firewall, it displayed the provider's domain: **`tiktok2.p***4g.com`**.
 
 According to standard routing fundamentals, to establish a connection with Node B, your target `Address` field must resolve to Node B. Here, the client was ordering the operating system to connect directly to TikTok's cloud, yet the final telemetry payload was routed back out from a third-party VPS to the open web.
 
@@ -44,7 +44,7 @@ To enforce localized data limits, internet service providers (ISPs) construct ga
 
 When the client application initiates a connection, the operating system first resolves `api24-normal-alisg.tiktokv.com` to a destination IP — one of TikTok's own Cloudflare Anycast addresses. The carrier's automated billing firewall appears to whitelist traffic purely by **destination IP/ASN range**: if the packet is headed to an IP block TikTok itself uses, it's waved through unmetered — no byte counted against the primary plan.
 
-Crucially, this means the firewall is **not** actually reading the SNI field inside the TLS ClientHello — because that field, in plaintext, literally says `tiktok2.phuonglien4g.com`, a hostname that has nothing to do with TikTok. If the carrier's DPI genuinely inspected the visible SNI content, this configuration would be rejected instantly; no "outer vs. inner" mismatch logic is even needed, since the giveaway is sitting right there, unencrypted, in the very first packet. The only thing being trusted here is "this IP belongs to a TikTok-adjacent CDN range" — nothing about the domain name being requested inside that connection.
+Crucially, this means the firewall is **not** actually reading the SNI field inside the TLS ClientHello — because that field, in plaintext, literally says `tiktok2.p***4g.com`, a hostname that has nothing to do with TikTok. If the carrier's DPI genuinely inspected the visible SNI content, this configuration would be rejected instantly; no "outer vs. inner" mismatch logic is even needed, since the giveaway is sitting right there, unencrypted, in the very first packet. The only thing being trusted here is "this IP belongs to a TikTok-adjacent CDN range" — nothing about the domain name being requested inside that connection.
 
 ### Step B: The Multi-Tenant CDN Convergence
 
@@ -56,16 +56,16 @@ The solution rests within the design of **Content Delivery Networks (CDNs)**. Me
 
 Once the data packet clears the carrier’s DPI wall, it immediately lands on the closest Cloudflare Edge Anycast Node. At this precise stage, the TLS handshake completes, and the cloud proxy decrypts the external transport layer wrapper.
 
-The CDN completely ignores the initial resolved destination IP. Instead, it looks deep into the **Layer-7 request headers** to extract the incoming **SNI/Host parameter**: `tiktok2.phuonglien4g.com`.
+The CDN completely ignores the initial resolved destination IP. Instead, it looks deep into the **Layer-7 request headers** to extract the incoming **SNI/Host parameter**: `tiktok2.p***4g.com`.
 
-The CDN edge node interprets this string immediately: *"This packet was carried here under the network route envelope of TikTok, but its true logical destination registered inside our multi-tenant cloud belongs to the PhuongLien4G cluster."* Acting as an instantaneous internal courier, the CDN alters the routing vector mid-flight and forwards the raw stream straight down to the provider's upstream VPS. The VPS receives the tunnel frame, decrypts the internal VLESS protocol, and proxies the request to the target web host.
+The CDN edge node interprets this string immediately: *"This packet was carried here under the network route envelope of TikTok, but its true logical destination registered inside our multi-tenant cloud belongs to the p***4g cluster."* Acting as an instantaneous internal courier, the CDN alters the routing vector mid-flight and forwards the raw stream straight down to the provider's upstream VPS. The VPS receives the tunnel frame, decrypts the internal VLESS protocol, and proxies the request to the target web host.
 
 ```
 [ Client Device ]
        │
        │ (Connects to a destination IP resolved from api24-normal-alisg.tiktokv.com —
        │  a TikTok-owned Cloudflare Anycast address; SNI actually sent in the
-       │  TLS ClientHello is tiktok2.phuonglien4g.com, unrelated to TikTok)
+       │  TLS ClientHello is tiktok2.p***4g.com, unrelated to TikTok)
        ▼
 [ Carrier DPI Gateway ] ─── (Only checks destination IP/ASN range -> matches TikTok's
        │                     CDN block -> waives data charging WITHOUT reading the SNI)
@@ -75,7 +75,7 @@ The CDN edge node interprets this string immediately: *"This packet was carried 
 [ CDN Edge Anycast Server ]
        │ 
        ├─ Terminates the TLS connection using the presented SNI.
-       ├─ Discovers internal Host/SNI mapping: [tiktok2.phuonglien4g.com].
+       ├─ Discovers internal Host/SNI mapping: [tiktok2.p***4g.com].
        └─ Routes the packet to the tenant that owns that SNI/hostname, not TikTok's backend.
        │
        ▼ (Internal CDN Handover)

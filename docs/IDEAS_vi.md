@@ -13,7 +13,7 @@ Vào thời điểm đó, tôi đang sử dụng một gói cước di động t
 Tò mò, tôi sao chép chuỗi URI dài và phức tạp đó:
 
 ```text
-vless://xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx@api24-normal-alisg.tiktokv.com:443?encryption=none&security=tls&headerType=none&type=grpc&allowInsecure=0&fp=chrome&sni=tiktok2.phuonglien4g.com&serviceName=PL4G#4G_FREE_SERVER
+vless://xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx@api24-normal-alisg.tiktokv.com:443?encryption=none&security=tls&headerType=none&type=grpc&allowInsecure=0&fp=chrome&sni=tiktok2.p***4g.com&serviceName=PL4G#4G_FREE_SERVER
 
 ```
 
@@ -28,7 +28,7 @@ Nó hoạt động hoàn hảo. Tuy nhiên, dưới góc nhìn của một lập
 Khi tôi bóc tách các thành phần trong chuỗi truy vấn VLESS, tôi đã sững sờ. Cấu hình này xuất hiện một nghịch lý cấu trúc, đảo ngược hoàn toàn lý thuyết định tuyến mạng cốt lõi:
 
 1. **Trường Địa Chỉ Máy Chủ (Server Address Field):** Thay vì trỏ đến IP công khai hoặc tên miền của một Máy chủ ảo (VPS) được thuê từ bên thứ ba, nó lại hiển thị rõ ràng **`api24-normal-alisg.tiktokv.com`** - node backend chính thức và độc quyền của TikTok.
-2. **Trường SNI (Server Name Indication):** Nơi mà client đáng lẽ phải chèn một host fake của TikTok đã được đưa vào danh sách trắng (whitelist) nhằm đánh lừa tường lửa của nhà mạng, thì nó lại hiển thị tên miền của nhà cung cấp dịch vụ: **`tiktok2.phuonglien4g.com`**.
+2. **Trường SNI (Server Name Indication):** Nơi mà client đáng lẽ phải chèn một host fake của TikTok đã được đưa vào danh sách trắng (whitelist) nhằm đánh lừa tường lửa của nhà mạng, thì nó lại hiển thị tên miền của nhà cung cấp dịch vụ: **`tiktok2.p***4g.com`**.
 
 Theo nguyên lý định tuyến tiêu chuẩn, để thiết lập kết nối với Node B, trường địa chỉ (`Address`) mục tiêu của bạn phải phân giải ra Node B. Nhưng ở đây, client lại ra lệnh cho hệ điều hành kết nối trực tiếp đến hạ tầng đám mây của TikTok, thế nhưng luồng dữ liệu cuối cùng lại được định tuyến ngược từ một VPS của bên thứ ba ra ngoài mạng Internet.
 
@@ -44,7 +44,7 @@ Nghịch lý này trở thành một nỗi ám ảnh. Tôi bắt đầu hành tr
 
 Khi ứng dụng client khởi tạo kết nối, hệ điều hành trước tiên phân giải `api24-normal-alisg.tiktokv.com` ra một địa chỉ IP đích - một trong những địa chỉ Cloudflare Anycast mà chính TikTok sở hữu. Tường lửa tính phí tự động của nhà mạng dường như chỉ whitelist theo **dải IP/ASN đích**: nếu gói tin hướng tới dải IP mà TikTok đang dùng, nó sẽ được cho qua miễn phí - không tính một byte nào vào gói cước chính.
 
-Điều quan trọng là: điều này có nghĩa tường lửa **không** thực sự đọc trường SNI bên trong TLS ClientHello - vì trường đó, ở dạng plaintext, thực chất ghi rõ `tiktok2.phuonglien4g.com`, một hostname chẳng liên quan gì đến TikTok. Nếu DPI của nhà mạng thực sự kiểm tra nội dung SNI hiển thị, cấu hình này sẽ bị từ chối ngay lập tức - thậm chí không cần đến logic đối chiếu "ngoài với trong" nào cả, vì manh mối đã nằm sẵn đó, không mã hóa, ngay trong gói tin đầu tiên. Thứ duy nhất đang được tin tưởng ở đây là "IP này thuộc dải CDN gần TikTok" - chứ không phải tên miền thực sự đang được yêu cầu bên trong kết nối đó.
+Điều quan trọng là: điều này có nghĩa tường lửa **không** thực sự đọc trường SNI bên trong TLS ClientHello - vì trường đó, ở dạng plaintext, thực chất ghi rõ `tiktok2.p***4g.com`, một hostname chẳng liên quan gì đến TikTok. Nếu DPI của nhà mạng thực sự kiểm tra nội dung SNI hiển thị, cấu hình này sẽ bị từ chối ngay lập tức - thậm chí không cần đến logic đối chiếu "ngoài với trong" nào cả, vì manh mối đã nằm sẵn đó, không mã hóa, ngay trong gói tin đầu tiên. Thứ duy nhất đang được tin tưởng ở đây là "IP này thuộc dải CDN gần TikTok" - chứ không phải tên miền thực sự đang được yêu cầu bên trong kết nối đó.
 
 ### Bước B: Sự Hội Tụ Trên CDN Đa Khách Thuê (Multi-Tenant CDN)
 
@@ -56,16 +56,16 @@ Câu trả lời nằm ở thiết kế của các **Mạng phân phối nội d
 
 Ngay sau khi gói tin vượt qua bức tường DPI của nhà mạng, nó lập tức hạ cánh xuống Edge Anycast Node gần nhất của Cloudflare. Tại giai đoạn chính xác này, quá trình bắt tay TLS hoàn tất, và cloud proxy sẽ giải mã lớp vỏ bọc tầng vận chuyển (transport layer) bên ngoài.
 
-CDN hoàn toàn bỏ qua IP đích đã được phân giải ban đầu. Thay vào đó, nó nhìn sâu vào **các HTTP header thuộc lớp Layer-7** để trích xuất tham số **SNI/Host** bên trong: `tiktok2.phuonglien4g.com`.
+CDN hoàn toàn bỏ qua IP đích đã được phân giải ban đầu. Thay vào đó, nó nhìn sâu vào **các HTTP header thuộc lớp Layer-7** để trích xuất tham số **SNI/Host** bên trong: `tiktok2.p***4g.com`.
 
-Edge node của CDN lập tức hiểu chuỗi ký tự này: *"Gói tin này được mang đến đây dưới lớp vỏ bọc mạng của TikTok, nhưng đích đến logic thực sự của nó được đăng ký trong phân vùng đám mây đa khách thuê của chúng tôi lại thuộc về cụm PhuongLien4G."* Đóng vai trò như một shipper nội bộ tức thì, CDN thay đổi vector định tuyến ngay giữa luồng bay và chuyển tiếp luồng dữ liệu thô thẳng đến VPS thượng nguồn (upstream VPS) của nhà cung cấp. VPS nhận được khung đường hầm (tunnel frame), giải mã giao thức VLESS bên trong, và làm proxy chuyển tiếp yêu cầu đến host web mục tiêu.
+Edge node của CDN lập tức hiểu chuỗi ký tự này: *"Gói tin này được mang đến đây dưới lớp vỏ bọc mạng của TikTok, nhưng đích đến logic thực sự của nó được đăng ký trong phân vùng đám mây đa khách thuê của chúng tôi lại thuộc về cụm p***4g."* Đóng vai trò như một shipper nội bộ tức thì, CDN thay đổi vector định tuyến ngay giữa luồng bay và chuyển tiếp luồng dữ liệu thô thẳng đến VPS thượng nguồn (upstream VPS) của nhà cung cấp. VPS nhận được khung đường hầm (tunnel frame), giải mã giao thức VLESS bên trong, và làm proxy chuyển tiếp yêu cầu đến host web mục tiêu.
 
 ```
 [ Thiết Bị Client ]
        │
        │ (Kết nối tới IP đích được phân giải từ api24-normal-alisg.tiktokv.com -
        │  một địa chỉ Cloudflare Anycast thuộc sở hữu TikTok; SNI thực sự gửi
-       │  trong TLS ClientHello là tiktok2.phuonglien4g.com, không liên quan TikTok)
+       │  trong TLS ClientHello là tiktok2.p***4g.com, không liên quan TikTok)
        ▼
 [ Tường Lửa DPI Nhà Mạng ] ─── (Chỉ kiểm tra dải IP/ASN đích -> khớp dải CDN của
        │                        TikTok -> miễn phí data MÀ KHÔNG đọc SNI)
@@ -75,7 +75,7 @@ Edge node của CDN lập tức hiểu chuỗi ký tự này: *"Gói tin này đ
 [ Máy Chủ CDN Edge Anycast ]
        │ 
        ├─ Kết thúc kết nối TLS dựa trên SNI được gửi tới.
-       ├─ Phát hiện ánh xạ SNI/Host bên trong: [tiktok2.phuonglien4g.com].
+       ├─ Phát hiện ánh xạ SNI/Host bên trong: [tiktok2.p***4g.com].
        └─ Định tuyến gói tin tới tenant sở hữu SNI/hostname đó, không phải backend TikTok.
        │
        ▼ (Chuyển giao nội bộ trong CDN)
