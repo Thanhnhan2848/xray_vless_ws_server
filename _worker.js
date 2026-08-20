@@ -8,6 +8,7 @@ Created by: HuskyDG
 let GLOBAL_TARGET_HOST = "";
 let GLOBAL_TARGET_PATH = "";
 let GLOBAL_ENTRY_PATH = "";
+let GLOBAL_TARGET_TRANSPORT = "websocket"; // "websocket" (default) or "httpupgrade"
 
 export default {
   async fetch(request, env, ctx) {
@@ -29,6 +30,7 @@ export default {
       let wshost = "";
       let wspath = "";
       let entrypath = "";
+      let transport = "";
 
       try {
         if (request.method == "POST") {
@@ -36,13 +38,16 @@ export default {
           wshost = jsonBody.wshost;
           wspath = jsonBody.wspath;
           entrypath = jsonBody.entrypath;
+          transport = jsonBody.transport;
         } else {
           wshost = url.searchParams.get("wshost");
           wspath = url.searchParams.get("wspath");
           entrypath = url.searchParams.get("entrypath");
+          transport = url.searchParams.get("transport");
         }
 
         if (!entrypath) entrypath = wspath;
+        if (!transport) transport = "websocket";
 
         if (!wshost || !wspath) {
           return new Response("Bad Request", { status: 400 });
@@ -52,12 +57,14 @@ export default {
         GLOBAL_TARGET_HOST = wshost;
         GLOBAL_TARGET_PATH = wspath;
         GLOBAL_ENTRY_PATH = entrypath;
+        GLOBAL_TARGET_TRANSPORT = transport;
 
         // 2. Also save to KV for persistence across worker restarts (uncomment if KV is set up)
         if (env.KV_CONFIG) {
           await env.KV_CONFIG.put("TARGET_HOST", wshost);
           await env.KV_CONFIG.put("TARGET_PATH", wspath);
           await env.KV_CONFIG.put("ENTRY_PATH", entrypath);
+          await env.KV_CONFIG.put("TARGET_TRANSPORT", transport);
         }
 
         return new Response(JSON.stringify({
@@ -66,6 +73,7 @@ export default {
           saved_host: wshost,
           saved_path: wspath,
           entry_path: entrypath,
+          transport: transport,
           kv_setup: (env.KV_CONFIG)? true : false
         }), { 
           status: 200, 
@@ -84,11 +92,13 @@ export default {
           const kvHost = await env.KV_CONFIG.get("TARGET_HOST");
           const kvPath = await env.KV_CONFIG.get("TARGET_PATH");
           const kvEntryPath = await env.KV_CONFIG.get("ENTRY_PATH");
+          const kvTransport = await env.KV_CONFIG.get("TARGET_TRANSPORT");
 
           if (kvHost && kvPath) {
             GLOBAL_TARGET_HOST = kvHost;
             GLOBAL_TARGET_PATH = kvPath;
             GLOBAL_ENTRY_PATH = kvEntryPath;
+            GLOBAL_TARGET_TRANSPORT = kvTransport || "websocket";
           }
       }
     }
@@ -109,7 +119,12 @@ export default {
     if (!entryPath.startsWith("/")) entryPath = "/" + entryPath;
 
     // ==========================================
-    // FORWARD WEBSOCKET PROXY LOGIC
+    // FORWARD PROXY LOGIC (websocket & httpupgrade)
+    // Xray's "httpupgrade" transport still performs a standard HTTP
+    // Upgrade: websocket handshake (for CDN compatibility) and only
+    // differs in framing on the raw stream, so no branching is needed
+    // here — we just forward the raw request/response either way.
+    // GLOBAL_TARGET_TRANSPORT is currently informational only.
     // ==========================================
     if (request.headers.get("Upgrade") === "websocket" && url.pathname === entryPath) {
       const targetUrl = new URL(`${targetHost}${targetPath}`);

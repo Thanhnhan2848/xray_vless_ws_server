@@ -28,6 +28,7 @@ def main():
         "FAKE_SNI": "api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com",
         "WS_PATH": "/tiktok4g",
         "WS_HOST": "trycloudflare.com",
+        "TRANSPORT": "websocket",
         "ENABLE_WARP": "false",
         "WEBHOOK_URL": ""
     }
@@ -70,6 +71,12 @@ def main():
     WS_HOST = get_os_env("WS_HOST")
     WEBHOOK_URL = get_os_env("WEBHOOK_URL")
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
+
+    # TRANSPORT: "websocket" (default) or "httpupgrade"
+    TRANSPORT = get_os_env("TRANSPORT").strip().lower()
+    if TRANSPORT not in ("websocket", "httpupgrade"):
+        print(f"[!] Unknown TRANSPORT '{TRANSPORT}', falling back to 'websocket'.")
+        TRANSPORT = "websocket"
 
     # Parse multi-port configuration
     # Supported formats: "8888" (defaults to 0.0.0.0), "127.0.0.1:8888", "0.0.0.0:443,0.0.0.0:80"
@@ -153,6 +160,26 @@ def main():
     # =========================================
     # VLESS-WS CONFIG GENERATOR
     # =========================================
+    def build_stream_settings():
+        if TRANSPORT == "httpupgrade":
+            return {
+                "network": "httpupgrade",
+                "security": "none",
+                "httpupgradeSettings": {
+                    "path": WS_PATH,
+                    "host": ""
+                }
+            }
+        else:
+            return {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                    "path": WS_PATH,
+                    "headers": {}
+                }
+            }
+
     def write_configs():
         inbounds = []
         for ip, port in inbound_ports:
@@ -173,14 +200,7 @@ def main():
                     ],
                     "decryption": "none"
                 },
-                "streamSettings": {
-                    "network": "ws",
-                    "security": "none",
-                    "wsSettings": {
-                        "path": WS_PATH,
-                        "headers": {}
-                    }
-                }
+                "streamSettings": build_stream_settings()
             })
 
         xray_config = {
@@ -284,13 +304,15 @@ def main():
         if WS_HOST and WS_HOST != "trycloudflare.com": 
             tunnel_host_info = WS_HOST
         
+        net_type = "httpupgrade" if TRANSPORT == "httpupgrade" else "ws"
+
         payloads = []
         sni_list = fake_sni.split(",");
 
         for sni in sni_list:
             payloads.extend([
-                f"vless://{uuid_str}@{sni}:443?type=ws&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}#Tunnel%20{sni_list.index(sni)+1}%20TLS",
-                f"vless://{uuid_str}@{sni}:80?type=ws&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}#Tunnel%20{sni_list.index(sni)+1}%20NO%20TLS"
+                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}#Tunnel%20{sni_list.index(sni)+1}%20TLS",
+                f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}#Tunnel%20{sni_list.index(sni)+1}%20NO%20TLS"
             ])
 
         print("\n" + "="*70)
@@ -309,6 +331,7 @@ def main():
             "ip": get_public_url(),
             "wshost": tunnel_host, 
             "wspath": ws_path,
+            "transport": TRANSPORT,
             "start_time": START_TIME,
         }
 
