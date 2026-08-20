@@ -72,9 +72,9 @@ def main():
     WEBHOOK_URL = get_os_env("WEBHOOK_URL")
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
 
-    # TRANSPORT: "websocket" (default) or "httpupgrade"
+    # TRANSPORT: "websocket" (default), "httpupgrade", or "xhttp"
     TRANSPORT = get_os_env("TRANSPORT").strip().lower()
-    if TRANSPORT not in ("websocket", "httpupgrade"):
+    if TRANSPORT not in ("websocket", "httpupgrade", "xhttp"):
         print(f"[!] Unknown TRANSPORT '{TRANSPORT}', falling back to 'websocket'.")
         TRANSPORT = "websocket"
 
@@ -168,6 +168,16 @@ def main():
                 "httpupgradeSettings": {
                     "path": WS_PATH,
                     "host": ""
+                }
+            }
+        elif TRANSPORT == "xhttp":
+            return {
+                "network": "xhttp",
+                "security": "none",
+                "xhttpSettings": {
+                    "path": WS_PATH,
+                    "host": "",
+                    "mode": "auto"
                 }
             }
         else:
@@ -304,15 +314,22 @@ def main():
         if WS_HOST and WS_HOST != "trycloudflare.com": 
             tunnel_host_info = WS_HOST
         
-        net_type = "httpupgrade" if TRANSPORT == "httpupgrade" else "ws"
+        if TRANSPORT == "httpupgrade":
+            net_type = "httpupgrade"
+        elif TRANSPORT == "xhttp":
+            net_type = "xhttp"
+        else:
+            net_type = "ws"
+
+        mode_param = "&mode=auto" if TRANSPORT == "xhttp" else ""
 
         payloads = []
         sni_list = fake_sni.split(",");
 
         for sni in sni_list:
             payloads.extend([
-                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}#Tunnel%20{sni_list.index(sni)+1}%20TLS",
-                f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}#Tunnel%20{sni_list.index(sni)+1}%20NO%20TLS"
+                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#Tunnel%20{sni_list.index(sni)+1}%20TLS",
+                f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#Tunnel%20{sni_list.index(sni)+1}%20NO%20TLS"
             ])
 
         print("\n" + "="*70)

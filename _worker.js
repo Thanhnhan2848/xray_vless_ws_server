@@ -48,6 +48,9 @@ export default {
 
         if (!entrypath) entrypath = wspath;
         if (!transport) transport = "websocket";
+        if (!["websocket", "httpupgrade", "xhttp"].includes(transport)) {
+          return new Response("Bad Request: invalid transport", { status: 400 });
+        }
 
         if (!wshost || !wspath) {
           return new Response("Bad Request", { status: 400 });
@@ -119,14 +122,21 @@ export default {
     if (!entryPath.startsWith("/")) entryPath = "/" + entryPath;
 
     // ==========================================
-    // FORWARD PROXY LOGIC (websocket & httpupgrade)
-    // Xray's "httpupgrade" transport still performs a standard HTTP
-    // Upgrade: websocket handshake (for CDN compatibility) and only
-    // differs in framing on the raw stream, so no branching is needed
-    // here — we just forward the raw request/response either way.
-    // GLOBAL_TARGET_TRANSPORT is currently informational only.
+    // FORWARD PROXY LOGIC
+    // - websocket / httpupgrade: both rely on a standard HTTP
+    //   "Upgrade: websocket" handshake (httpupgrade only differs in
+    //   how Xray frames the raw stream after the handshake), so a
+    //   single branch below covers both.
+    // - xhttp (splithttp): does NOT use the Upgrade header at all.
+    //   It sends/receives data via plain HTTP POST/GET requests,
+    //   with each session living under "entryPath/{sessionId}", so
+    //   we forward any request whose pathname starts with entryPath.
     // ==========================================
-    if (request.headers.get("Upgrade") === "websocket" && url.pathname === entryPath) {
+    const isUpgradeTransport = GLOBAL_TARGET_TRANSPORT !== "xhttp";
+    const isUpgradeRequest = request.headers.get("Upgrade") === "websocket";
+    const pathMatchesXhttp = url.pathname === entryPath || url.pathname.startsWith(entryPath + "/");
+
+    if (isUpgradeTransport && isUpgradeRequest && url.pathname === entryPath) {
       const targetUrl = new URL(`${targetHost}${targetPath}`);
 
       const newHeaders = new Headers(request.headers);
@@ -135,6 +145,23 @@ export default {
       return fetch(targetUrl.toString(), {
         method: "GET",
         headers: newHeaders
+      });
+    }
+
+    if (!isUpgradeTransport && pathMatchesXhttp) {
+      // Preserve the session-id suffix (everything after entryPath) when
+      // forwarding to the target, since xhttp routes by session path.
+      const suffix = url.pathname.slice(entryPath.length);
+      const targetUrl = new URL(`${targetHost}${targetPath}${suffix}${url.search}`);
+
+      const newHeaders = new Headers(request.headers);
+      newHeaders.set("Host", targetUrl.host);
+
+      return fetch(targetUrl.toString(), {
+        method: request.method,
+        headers: newHeaders,
+        body: (request.method === "GET" || request.method === "HEAD") ? undefined : request.body,
+        duplex: (request.method === "GET" || request.method === "HEAD") ? undefined : "half"
       });
     }
 
