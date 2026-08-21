@@ -73,9 +73,13 @@ def main():
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
     DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
-    # TRANSPORT: "websocket" (default) or "xhttp"
+    # TRANSPORT: "websocket" only for now — xhttp is temporarily disabled
+    # (was unstable / needs more testing behind Cloudflare Tunnel).
     TRANSPORT = get_os_env("TRANSPORT").strip().lower()
-    if TRANSPORT not in ("websocket", "xhttp"):
+    if TRANSPORT == "xhttp":
+        print("[!] TRANSPORT=xhttp is temporarily disabled, falling back to 'websocket'.")
+        TRANSPORT = "websocket"
+    elif TRANSPORT != "websocket":
         print(f"[!] Unknown TRANSPORT '{TRANSPORT}', falling back to 'websocket'.")
         TRANSPORT = "websocket"
 
@@ -162,24 +166,14 @@ def main():
     # VLESS-WS CONFIG GENERATOR
     # =========================================
     def build_stream_settings():
-        if TRANSPORT == "xhttp":
-            return {
-                "network": "xhttp",
-                "security": "none",
-                "xhttpSettings": {
-                    "path": WS_PATH,
-                    "mode": "auto"
-                }
+        return {
+            "network": "ws",
+            "security": "none",
+            "wsSettings": {
+                "path": WS_PATH,
+                "headers": {}
             }
-        else:
-            return {
-                "network": "ws",
-                "security": "none",
-                "wsSettings": {
-                    "path": WS_PATH,
-                    "headers": {}
-                }
-            }
+        }
 
     def write_configs():
         inbounds = []
@@ -244,15 +238,18 @@ def main():
         errors='replace'
     )
 
-    print(f"[*] Launching Cloudflare Tunnel pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
-    clp = subprocess.Popen(
-        [CLF_BIN, "tunnel", "--protocol", "http2", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding='utf-8',
-        errors='replace'
-    )
+    def launch_cloudflared():
+        print(f"[*] Launching Cloudflare Tunnel pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
+        return subprocess.Popen(
+            [CLF_BIN, "tunnel", "--protocol", "http2", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            errors='replace'
+        )
+
+    clp = launch_cloudflared()
 
     cloudflare_url = None
     
@@ -294,9 +291,13 @@ def main():
                     print(f"[CLOUDFLARE LOG] {clean_line.strip()}")
                     
                     match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', clean_line)
-                    if match and not cloudflare_url:
-                        cloudflare_url = match.group(0).replace("https://", "")
-                        print_vless_links(cloudflare_url, UUID, FAKE_SNI, WS_PATH)
+                    if match:
+                        new_url = match.group(0).replace("https://", "")
+                        if new_url != cloudflare_url:
+                            if cloudflare_url:
+                                print(f"[*] Detected new tunnel domain: {new_url} (was: {cloudflare_url})")
+                            cloudflare_url = new_url
+                            print_vless_links(cloudflare_url, UUID, FAKE_SNI, WS_PATH)
         except Exception as e:
             #print(e)
             pass
@@ -312,9 +313,8 @@ def main():
         if WS_HOST and WS_HOST != "trycloudflare.com": 
             tunnel_host_info = WS_HOST
         
-        net_type = "xhttp" if TRANSPORT == "xhttp" else "ws"
-
-        mode_param = "&mode=auto" if TRANSPORT == "xhttp" else ""
+        net_type = "ws"
+        mode_param = ""
 
         payloads = []
         sni_list = fake_sni.split(",");
@@ -358,6 +358,15 @@ def main():
             if xp.poll() is not None and clp.poll() is not None:
                 print(f"\n[!] WARNING: Both processes have stopped.")
                 break
+
+            # If only cloudflared died (e.g. quick tunnel dropped/restarted), relaunch it.
+            # This will get a brand new trycloudflare.com domain, which monitor_cloudflare
+            # picks up and re-broadcasts via print_vless_links() + webhook automatically.
+            if clp.poll() is not None and xp.poll() is None:
+                print("[!] Cloudflare Tunnel process stopped unexpectedly. Restarting...")
+                clp = launch_cloudflared()
+                threading.Thread(target=monitor_cloudflare, args=(clp.stdout,), daemon=True).start()
+
             time.sleep(1)
             
     except KeyboardInterrupt:
