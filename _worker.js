@@ -8,7 +8,7 @@ Created by: HuskyDG
 let GLOBAL_TARGET_HOST = "";
 let GLOBAL_TARGET_PATH = "";
 let GLOBAL_ENTRY_PATH = "";
-let GLOBAL_TARGET_TRANSPORT = "websocket"; // "websocket" (default) or "httpupgrade"
+let GLOBAL_TARGET_TRANSPORT = "websocket"; // "websocket" (default) or "xhttp"
 
 export default {
   async fetch(request, env, ctx) {
@@ -48,7 +48,7 @@ export default {
 
         if (!entrypath) entrypath = wspath;
         if (!transport) transport = "websocket";
-        if (!["websocket", "httpupgrade", "xhttp"].includes(transport)) {
+        if (!["websocket", "xhttp"].includes(transport)) {
           return new Response("Bad Request: invalid transport", { status: 400 });
         }
 
@@ -123,10 +123,8 @@ export default {
 
     // ==========================================
     // FORWARD PROXY LOGIC
-    // - websocket / httpupgrade: both rely on a standard HTTP
-    //   "Upgrade: websocket" handshake (httpupgrade only differs in
-    //   how Xray frames the raw stream after the handshake), so a
-    //   single branch below covers both.
+    // - websocket: relies on a standard HTTP "Upgrade: websocket"
+    //   handshake, so we forward the request as-is once matched.
     // - xhttp (splithttp): does NOT use the Upgrade header at all.
     //   It sends/receives data via plain HTTP POST/GET requests,
     //   with each session living under "entryPath/{sessionId}", so

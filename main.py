@@ -71,10 +71,11 @@ def main():
     WS_HOST = get_os_env("WS_HOST")
     WEBHOOK_URL = get_os_env("WEBHOOK_URL")
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
+    DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
-    # TRANSPORT: "websocket" (default), "httpupgrade", or "xhttp"
+    # TRANSPORT: "websocket" (default) or "xhttp"
     TRANSPORT = get_os_env("TRANSPORT").strip().lower()
-    if TRANSPORT not in ("websocket", "httpupgrade", "xhttp"):
+    if TRANSPORT not in ("websocket", "xhttp"):
         print(f"[!] Unknown TRANSPORT '{TRANSPORT}', falling back to 'websocket'.")
         TRANSPORT = "websocket"
 
@@ -161,22 +162,12 @@ def main():
     # VLESS-WS CONFIG GENERATOR
     # =========================================
     def build_stream_settings():
-        if TRANSPORT == "httpupgrade":
-            return {
-                "network": "httpupgrade",
-                "security": "none",
-                "httpupgradeSettings": {
-                    "path": WS_PATH,
-                    "host": ""
-                }
-            }
-        elif TRANSPORT == "xhttp":
+        if TRANSPORT == "xhttp":
             return {
                 "network": "xhttp",
                 "security": "none",
                 "xhttpSettings": {
                     "path": WS_PATH,
-                    "host": "",
                     "mode": "auto"
                 }
             }
@@ -215,13 +206,15 @@ def main():
 
         xray_config = {
             "log": {
-                "loglevel": "warning"
+                "loglevel": "debug"
             },
             "inbounds": inbounds,
             "outbounds": [
                 {
                     "protocol": "freedom",
-                    "settings": {}
+                    "settings": {
+                        "domainStrategy": "UseIPv4"
+                    }
                 }
             ]
         }
@@ -270,6 +263,11 @@ def main():
     except Exception:
         logger = None
 
+    def logger_push(message, source):
+        if logger:
+            logger.push_log(f"[{source}] {message}", source)
+            print(f"[{source}] {message}") if DEBUG_MODE else None
+
     def monitor_xray(pipe):
         try:
             with pipe:
@@ -278,11 +276,11 @@ def main():
                     if "Permission denied" in line or "EACCES" in line or "address already in use" in line:
                         # Log silently to Web UI instead of crashing the main process stdout aggressively
                         if logger:
-                            logger.push_log(f"[SILENT BIND WARNING] {line.strip()}", "XRAY")
+                            logger_push(f"[SILENT BIND WARNING] {line.strip()}", "XRAY")
                         continue
                     
                     if logger:
-                        logger.push_log(line.strip(), "XRAY")
+                        logger_push(line.strip(), "XRAY")
         except Exception:
             pass
 
@@ -314,12 +312,7 @@ def main():
         if WS_HOST and WS_HOST != "trycloudflare.com": 
             tunnel_host_info = WS_HOST
         
-        if TRANSPORT == "httpupgrade":
-            net_type = "httpupgrade"
-        elif TRANSPORT == "xhttp":
-            net_type = "xhttp"
-        else:
-            net_type = "ws"
+        net_type = "xhttp" if TRANSPORT == "xhttp" else "ws"
 
         mode_param = "&mode=auto" if TRANSPORT == "xhttp" else ""
 
@@ -341,6 +334,7 @@ def main():
             for payload in payloads:
                 f.write(payload);
                 f.write("\n") if payloads.index(payload) < len(payloads)-1 else None
+                print(payload) if DEBUG_MODE else None
             print("Written to frp_info.config")
         
         frp_info = {
