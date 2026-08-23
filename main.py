@@ -30,7 +30,8 @@ def main():
         "WS_HOST": "trycloudflare.com",
         "TRANSPORT": "websocket",
         "ENABLE_WARP": "false",
-        "WEBHOOK_URL": ""
+        "WEBHOOK_URL": "",
+        "TUNNEL_TOKEN": ""
     }
     START_TIME = int(time.time())
 
@@ -70,6 +71,7 @@ def main():
     WS_PATH = get_os_env("WS_PATH")
     WS_HOST = get_os_env("WS_HOST")
     WEBHOOK_URL = get_os_env("WEBHOOK_URL")
+    TUNNEL_TOKEN = get_os_env("TUNNEL_TOKEN").strip()
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
     DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
@@ -238,7 +240,29 @@ def main():
         errors='replace'
     )
 
+    def write_cloudflared_config():
+        config_yml_content = (
+            f"tunnel: {TUNNEL_TOKEN}\n\n"
+            "ingress:\n"
+            f"  - hostname: {WS_HOST}\n"
+            f"    service: http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}\n"
+            "  - service: http_status:404\n"
+        )
+        with open("config.yml", "w", encoding="utf-8") as f:
+            f.write(config_yml_content)
+
     def launch_cloudflared():
+        if TUNNEL_TOKEN:
+            write_cloudflared_config()
+            print(f"[*] Launching Cloudflare Tunnel (named tunnel via config.yml)...")
+            return subprocess.Popen(
+                [CLF_BIN, "tunnel", "--config", "config.yml", "run"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='replace'
+            )
         print(f"[*] Launching Cloudflare Tunnel pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
         return subprocess.Popen(
             [CLF_BIN, "tunnel", "--protocol", "http2", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
@@ -289,7 +313,18 @@ def main():
                 for line in iter(pipe.readline, ''):
                     clean_line = ansi_escape.sub('', line)
                     print(f"[CLOUDFLARE LOG] {clean_line.strip()}")
-                    
+
+                    if TUNNEL_TOKEN:
+                        # Named tunnel via token: the hostname is whatever was
+                        # configured on the Cloudflare dashboard / config.yml
+                        # (WS_HOST), not something printed to stdout. Instead,
+                        # watch for a "connection registered" log line to know
+                        # the tunnel is actually up, then print links once.
+                        if cloudflare_url is None and re.search(r'[Rr]egistered tunnel connection', clean_line):
+                            cloudflare_url = WS_HOST
+                            print_vless_links(cloudflare_url, UUID, FAKE_SNI, WS_PATH)
+                        continue
+
                     match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', clean_line)
                     if match:
                         new_url = match.group(0).replace("https://", "")
