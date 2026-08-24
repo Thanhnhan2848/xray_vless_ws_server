@@ -354,10 +354,21 @@ def main():
         payloads = []
         sni_list = fake_sni.split(",");
 
-        for sni in sni_list:
+        for idx, sni_entry in enumerate(sni_list):
+            sni_entry = sni_entry.strip()
+            if "#" in sni_entry:
+                sni, remark = sni_entry.split("#", 1)
+                sni = sni.strip()
+                remark = remark.strip() or f"Tunnel {idx+1}"
+            else:
+                sni = sni_entry
+                remark = f"Tunnel {idx+1}"
+
+            encoded_remark = urllib.parse.quote(remark, safe='')
+
             payloads.extend([
-                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#Tunnel%20{sni_list.index(sni)+1}%20TLS",
-                f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#Tunnel%20{sni_list.index(sni)+1}%20NO%20TLS"
+                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS",
+                f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_remark}%20NO%20TLS"
             ])
 
         print("\n" + "="*70)
