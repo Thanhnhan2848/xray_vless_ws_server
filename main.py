@@ -31,7 +31,8 @@ def main():
         "TRANSPORT": "websocket",
         "ENABLE_WARP": "false",
         "WEBHOOK_URL": "",
-        "TUNNEL_TOKEN": ""
+        "TUNNEL_TOKEN": "",
+        "RUN_MODE": "quick_tunnel"
     }
     START_TIME = int(time.time())
 
@@ -49,7 +50,7 @@ def main():
 
     def init_env_file():
         env_path = ".env"
-        # Support multiple ports format. 
+        # Support multiple ports format.
         # Default: localhost:8888
 
         if not os.path.exists(env_path):
@@ -74,6 +75,26 @@ def main():
     TUNNEL_TOKEN = get_os_env("TUNNEL_TOKEN").strip()
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
     DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
+    RUN_MODE = get_os_env("RUN_MODE").strip().lower()
+
+    # Normalize RUN_MODE. Old .env files without RUN_MODE default to quick_tunnel.
+    ALLOWED_RUN_MODES = ("quick_tunnel", "named_tunnel", "direct")
+    if RUN_MODE not in ALLOWED_RUN_MODES:
+        print(f"[!] Unknown RUN_MODE '{RUN_MODE}', falling back to 'quick_tunnel'.")
+        RUN_MODE = "quick_tunnel"
+
+    # Validate per-mode requirements before downloading/launching anything.
+    if RUN_MODE == "named_tunnel":
+        if not WS_HOST.strip() or WS_HOST.strip() == "trycloudflare.com":
+            print("[ERROR] RUN_MODE=named_tunnel requires WS_HOST to be your custom domain (not trycloudflare.com).")
+            return
+        if not TUNNEL_TOKEN:
+            print("[ERROR] RUN_MODE=named_tunnel requires TUNNEL_TOKEN.")
+            return
+    elif RUN_MODE == "direct":
+        if not WS_HOST.strip() or WS_HOST.strip() == "trycloudflare.com":
+            print("[ERROR] RUN_MODE=direct requires WS_HOST to be your Cloudflare-proxied domain.")
+            return
 
     # TRANSPORT: "websocket" only for now — xhttp is temporarily disabled
     # (was unstable / needs more testing behind Cloudflare Tunnel).
@@ -105,13 +126,19 @@ def main():
     if CLOUDFLARE_TARGET_IP == "0.0.0.0":
         CLOUDFLARE_TARGET_IP = "127.0.0.1"
 
+    if RUN_MODE == "direct":
+        direct_ip, direct_port = inbound_ports[0]
+        if direct_port != 80:
+            print(f"[!] DIRECT MODE: origin is listening on port {direct_port}. Cloudflare Flexible expects an HTTP origin on port 80.")
+        print("[!] DIRECT MODE: origin leg is plaintext WebSocket (no TLS). Set Cloudflare SSL/TLS to 'Flexible'.")
+
     def send_webhook(data):
-        if not WEBHOOK_URL: 
+        if not WEBHOOK_URL:
             return
         def task():
             try:
                 response = requests.post(
-                    WEBHOOK_URL, 
+                    WEBHOOK_URL,
                     json=data,
                     timeout=10
                 )
@@ -135,7 +162,7 @@ def main():
     if not os.path.exists(XRAY_BIN):
         print(f"[ERROR] Unable to find xray path: {XRAY_BIN}")
         xray_downloader.install_xray()
-    if not os.path.exists(CLF_BIN):
+    if RUN_MODE != "direct" and not os.path.exists(CLF_BIN):
         print(f"[ERROR] Unable to find Cloudflared path: {CLF_BIN}")
         cloudflared_downloader.install_cloudflared()
 
@@ -145,7 +172,7 @@ def main():
         if not os.path.exists(WGCF_BIN):
             print(f"[ERROR] Unable to find WGCF path: {WGCF_BIN}")
             wgcf_downloader.install_wgcf()
-        
+
         if not os.path.exists("wgcf.xray.json"):
             print("[*] Generating WARP account...")
             # Dont print output of wgcf-cli to avoid leaking sensitive info, but ensure it runs successfully
@@ -222,14 +249,14 @@ def main():
         if os.path.exists("config.json"):
             try: os.remove("config.json")
             except: pass
-            
-        with open("config.json", "w", encoding="utf-8") as f: 
+
+        with open("config.json", "w", encoding="utf-8") as f:
             json.dump(xray_config, f, indent=2)
 
     write_configs()
 
     print(f"[*] Launching XRAY with multi-port inbounds...")
-    # Using 'run' with extra environment or fallback handling is ideal, 
+    # Using 'run' with extra environment or fallback handling is ideal,
     # but natively Xray logs the error to stderr and continues if other ports work.
     xp = subprocess.Popen(
         [XRAY_BIN, "run", "-c", "config.json"],
@@ -240,29 +267,22 @@ def main():
         errors='replace'
     )
 
-    def write_cloudflared_config():
-        config_yml_content = (
-            f"tunnel: {TUNNEL_TOKEN}\n\n"
-            "ingress:\n"
-            f"  - hostname: {WS_HOST}\n"
-            f"    service: http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}\n"
-            "  - service: http_status:404\n"
-        )
-        with open("config.yml", "w", encoding="utf-8") as f:
-            f.write(config_yml_content)
-
     def launch_cloudflared():
-        if TUNNEL_TOKEN:
-            write_cloudflared_config()
-            print(f"[*] Launching Cloudflare Tunnel (named tunnel via config.yml)...")
+        # direct mode does not use cloudflared at all.
+        if RUN_MODE == "direct":
+            return None
+
+        if RUN_MODE == "named_tunnel":
+            print("[*] Launching Cloudflare Named Tunnel (token mode)...")
             return subprocess.Popen(
-                [CLF_BIN, "tunnel", "--config", "config.yml", "run"],
+                [CLF_BIN, "tunnel", "run", "--token", TUNNEL_TOKEN],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 encoding='utf-8',
                 errors='replace'
             )
+
         print(f"[*] Launching Cloudflare Tunnel pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
         return subprocess.Popen(
             [CLF_BIN, "tunnel", "--protocol", "http2", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
@@ -276,7 +296,7 @@ def main():
     clp = launch_cloudflared()
 
     cloudflare_url = None
-    
+
     try:
         logger = RealtimeLogger(port=9999, password=None)
         logger_url = logger.start()
@@ -299,7 +319,7 @@ def main():
                         if logger:
                             logger_push(f"[SILENT BIND WARNING] {line.strip()}", "XRAY")
                         continue
-                    
+
                     if logger:
                         logger_push(line.strip(), "XRAY")
         except Exception:
@@ -314,9 +334,9 @@ def main():
                     clean_line = ansi_escape.sub('', line)
                     print(f"[CLOUDFLARE LOG] {clean_line.strip()}")
 
-                    if TUNNEL_TOKEN:
+                    if RUN_MODE == "named_tunnel":
                         # Named tunnel via token: the hostname is whatever was
-                        # configured on the Cloudflare dashboard / config.yml
+                        # configured on the Cloudflare Zero Trust dashboard
                         # (WS_HOST), not something printed to stdout. Instead,
                         # watch for a "connection registered" log line to know
                         # the tunnel is actually up, then print links once.
@@ -334,59 +354,75 @@ def main():
                             cloudflare_url = new_url
                             print_vless_links(cloudflare_url, UUID, FAKE_SNI, WS_PATH)
         except Exception as e:
-            #print(e)
+            # print(e)
             pass
 
     threading.Thread(target=monitor_xray, args=(xp.stdout,), daemon=True).start()
-    threading.Thread(target=monitor_cloudflare, args=(clp.stdout,), daemon=True).start()
+    if clp is not None:
+        threading.Thread(target=monitor_cloudflare, args=(clp.stdout,), daemon=True).start()
 
     def print_vless_links(tunnel_host, uuid_str, fake_sni, ws_path):
         import urllib.parse
         encoded_path = urllib.parse.quote(ws_path, safe='')
 
         tunnel_host_info = tunnel_host
-        if WS_HOST and WS_HOST != "trycloudflare.com": 
+        if WS_HOST and WS_HOST != "trycloudflare.com":
             tunnel_host_info = WS_HOST
-        
+
         net_type = "ws"
         mode_param = ""
 
         payloads = []
-        sni_list = fake_sni.split(",");
 
-        for idx, sni_entry in enumerate(sni_list):
-            sni_entry = sni_entry.strip()
-            if "#" in sni_entry:
-                sni, remark = sni_entry.split("#", 1)
-                sni = sni.strip()
-                remark = remark.strip() or f"Tunnel {idx+1}"
-            else:
-                sni = sni_entry
-                remark = f"Tunnel {idx+1}"
+        if RUN_MODE == "direct":
+            # Direct mode: client connects to the Cloudflare-proxied domain
+            # (WS_HOST) on TLS port 443. Cloudflare edge terminates TLS and
+            # forwards plaintext HTTP/WebSocket to the origin on port 80.
+            payloads.append(
+                f"vless://{uuid_str}@{tunnel_host_info}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#Direct%20TLS"
+            )
+        else:
+            sni_list = fake_sni.split(",")
 
-            encoded_remark = urllib.parse.quote(remark, safe='')
+            for idx, sni_entry in enumerate(sni_list):
+                sni_entry = sni_entry.strip()
+                if "#" in sni_entry:
+                    sni, remark = sni_entry.split("#", 1)
+                    sni = sni.strip()
+                    remark = remark.strip() or f"Tunnel {idx+1}"
+                else:
+                    sni = sni_entry
+                    remark = f"Tunnel {idx+1}"
 
-            payloads.extend([
-                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS",
-                f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_remark}%20NO%20TLS"
-            ])
+                encoded_remark = urllib.parse.quote(remark, safe='')
 
-        print("\n" + "="*70)
-        print(" CONNECTED TO CLOUDFLARE TUNNEL")
-        print("="*70)
-        print("="*70 + "\n")
+                payloads.extend([
+                    f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS",
+                    f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_remark}%20NO%20TLS"
+                ])
+
+        if RUN_MODE == "direct":
+            print("\n" + "="*70)
+            print(" DIRECT MODE (Cloudflare proxied DNS -> origin :80)")
+            print("="*70)
+            print("="*70 + "\n")
+        else:
+            print("\n" + "="*70)
+            print(" CONNECTED TO CLOUDFLARE TUNNEL")
+            print("="*70)
+            print("="*70 + "\n")
 
         with open("frp_info.config", "w", encoding='utf-8') as f:
             for payload in payloads:
-                f.write(payload);
+                f.write(payload)
                 f.write("\n") if payloads.index(payload) < len(payloads)-1 else None
                 print(payload) if DEBUG_MODE else None
             print("Written to frp_info.config")
-        
+
         frp_info = {
             "payloads": payloads,
             "ip": get_public_url(),
-            "wshost": tunnel_host, 
+            "wshost": tunnel_host,
             "wspath": ws_path,
             "transport": TRANSPORT,
             "start_time": START_TIME,
@@ -397,31 +433,45 @@ def main():
             json.dump(frp_info, f, indent=4)
             print("Written to frp_info.json")
 
+    # Direct mode has no cloudflared process to scrape a hostname from,
+    # so generate links immediately from the configured WS_HOST.
+    if RUN_MODE == "direct":
+        cloudflare_url = WS_HOST
+        print("[!] Recommended: restrict origin port 80 to Cloudflare IP ranges only.")
+        print_vless_links(cloudflare_url, UUID, FAKE_SNI, WS_PATH)
+
     try:
         while True:
-            # Termux workaround: We don't crash if Xray returns a code but cloudflared is still happily running on the local port 8888.
-            # However, if both stop or core configuration is broken, we terminate.
-            if xp.poll() is not None and clp.poll() is not None:
-                print(f"\n[!] WARNING: Both processes have stopped.")
-                break
+            if RUN_MODE == "direct":
+                # Only monitor Xray; there is no cloudflared process.
+                if xp.poll() is not None:
+                    print("\n[!] WARNING: Xray process has stopped.")
+                    break
+            else:
+                # Termux workaround: We don't crash if Xray returns a code but cloudflared is still happily running on the local port 8888.
+                # However, if both stop or core configuration is broken, we terminate.
+                if xp.poll() is not None and clp.poll() is not None:
+                    print("\n[!] WARNING: Both processes have stopped.")
+                    break
 
-            # If only cloudflared died (e.g. quick tunnel dropped/restarted), relaunch it.
-            # This will get a brand new trycloudflare.com domain, which monitor_cloudflare
-            # picks up and re-broadcasts via print_vless_links() + webhook automatically.
-            if clp.poll() is not None and xp.poll() is None:
-                print("[!] Cloudflare Tunnel process stopped unexpectedly. Restarting...")
-                clp = launch_cloudflared()
-                threading.Thread(target=monitor_cloudflare, args=(clp.stdout,), daemon=True).start()
+                # If only cloudflared died (e.g. quick tunnel dropped/restarted), relaunch it.
+                # This will get a brand new trycloudflare.com domain, which monitor_cloudflare
+                # picks up and re-broadcasts via print_vless_links() + webhook automatically.
+                if clp.poll() is not None and xp.poll() is None:
+                    print("[!] Cloudflare Tunnel process stopped unexpectedly. Restarting...")
+                    clp = launch_cloudflared()
+                    threading.Thread(target=monitor_cloudflare, args=(clp.stdout,), daemon=True).start()
 
             time.sleep(1)
-            
+
     except KeyboardInterrupt:
         print("\n[*] Stopping services...")
     finally:
         try: xp.terminate()
         except: pass
-        try: clp.terminate()
-        except: pass
+        if clp is not None:
+            try: clp.terminate()
+            except: pass
 
 if __name__ == "__main__":
     main()

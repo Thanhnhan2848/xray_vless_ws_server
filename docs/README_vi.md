@@ -1,126 +1,101 @@
-# Giao Thức Bypass Xray VLESS-WS: Lợi Dụng Dải IP Anycast Dùng Chung (Proof of Concept)
+# Xray VLESS-WS Server (Proof of Concept)
 
-Một dự án Proof of Concept (PoC) tự động bằng Python phục vụ cho mục đích giáo dục, trình diễn cách tận dụng **Xray-Core** và **Cloudflare Tunnel** (bao gồm cả `trycloudflare.com` tạm thời lẫn **Domain riêng/Named Tunnel**) để thiết lập một proxy VLESS-WebSocket an toàn. Kho lưu trữ này hoạt động như một môi trường thử nghiệm cục bộ nhằm xác thực khả năng vượt tường lửa kiểm tra gói tin sâu Layer 7 trên các mạng di động được miễn phí data (ví dụ: các gói cước TikTok) trước khi triển khai lên hạ tầng production thực tế.
+[Xem bản tiếng Anh](https://vincentng295.github.io/xray_vless_ws_server/README)
 
-Ý tưởng của dự án này được khơi nguồn từ đây: [Giải Mã Lỗ Hổng: Hành Trình Khám Phá Kỹ Thuật Tách Lớp Layer-7](https://vincentng295.github.io/xray_vless_ws_server/IDEAS_vi)
+Một proof-of-concept Python mang tính giáo dục, chạy máy chủ **Xray-Core** VLESS-WebSocket và mở ra internet qua **Cloudflare** theo ba cách. Dùng `run.sh` kèm theo để chọn chế độ một cách tương tác; script sẽ ghi file `.env` hợp lệ và khởi động máy chủ.
 
----
-
-## Kiến Trúc: Bản Thử Nghiệm (PoC) vs. Domain Riêng vs. Hạ Tầng Thực Tế (Production)
-
-Việc hiểu rõ sự phát triển từ bộ suite thử nghiệm tạm thời đến việc tích hợp Tên miền riêng và các kiến trúc thương mại thực tế là vô cùng quan trọng:
-
-### 1. Cloudflare Tunnel Tạm Thời (Thử Nghiệm Nhanh)
-* **Hạ Tầng:** Sử dụng Cloudflare Tunnel tạm thời được tạo động thông qua lệnh `cloudflared tunnel --url`.
-* **Hạn Chế:** Cloudflare cấp ngẫu nhiên một subdomain (dạng `*.trycloudflare.com`) sau mỗi lần thực thi script. Cơ chế này tiện lợi để xác thực logic mạng nhanh chóng nhưng không thích hợp để dùng cố định lâu dài.
-
-### 2. Tên Miền Riêng Qua Cloudflare Named Tunnel (Đã hỗ trợ trong `main.py`)
-* **Hạ Tầng:** Bằng cách điền `TUNNEL_TOKEN` và khai báo Tên miền riêng tại `WS_HOST` trong file `.env`, hệ thống sẽ tự động chuyển từ tunnel tạm thời sang Cloudflare Named Tunnel cố định.
-* **Ưu Điểm:** Giúp bạn sở hữu một domain cố định (ví dụ: `v2ray.tenmien.com`) mà không cần IP công khai tại máy nhà/máy thử nghiệm, giữ nguyên cấu hình link VLESS không bị thay đổi mỗi khi khởi động lại script.
-
-### 3. Hạ Tầng Thương Mại / Production Thực Tế
-Để xây dựng một hệ thống ổn định, tốc độ cao và phục vụ nhiều người dùng:
-* **Máy Chủ Ảo Riêng (VPS) Dedicated:** Thuê VPS Linux có IP Công khai cố định. Xray chạy native trực tiếp trên VPS, tiếp nhận các kết nối băng thông cao trên các cổng mạng tiêu chuẩn (80, 443) nhằm tối ưu độ trễ.
-* **Cloudflare for SaaS (Custom Hostnames):** Đăng ký tên miền cố định trỏ qua Cloudflare Enterprise/SaaS (**Custom Hostnames** kết hợp **Fallback Origin** trỏ về IP VPS) để tách biệt vĩnh viễn IP cổng vào với máy chủ proxy thực sự.
-
----
-
-## Nguyên Lý Vận Hành Kỹ Thuật
-
-Cơ chế cốt lõi dựa trên việc nhà mạng whitelist theo dải IP/ASN, tách biệt hoàn toàn với việc SNI/Host thực tế có được kiểm tra hay không:
-
-
-```
-
-[ Thiết Bị Client ]
-│
-│ (1) Phân giải DNS domain api24-normal-alisg.tiktokv.com
-│     -> ra một IP Cloudflare Anycast mà chính TikTok cũng đang dùng
-▼
-[ Tường Lửa / DPI Nhà Mạng ] ─── (Chỉ kiểm tra: IP/ASN đích có nằm trong dải
-│                                  whitelist TikTok/Cloudflare không? -> có -> cho qua
-│                                  miễn phí, KHÔNG kiểm tra SNI hay Host Header)
-│
-│ (2) Gói TLS ClientHello gửi tới IP đó — SNI = ten-mien-tunnel-cua-ban.com
-│     (KHÔNG PHẢI api24-normal-alisg.tiktokv.com — xem main.py: trường `sni`
-│     trong link vless được set bằng tunnel host, domain tiktok chỉ dùng để
-│     phân giải ra IP đích)
-▼
-[ Edge Node Cloudflare ]
-│
-├─ Kết thúc kết nối TLS dựa trên SNI (tunnel host) vừa nêu trên.
-├─ Đọc HTTP Host Header ẩn bên trong: [ten-mien-tunnel-cua-ban.com].
-└─ Ánh xạ payload của host vào đường hầm tunnel đang hoạt động.
-│
-▼ (Chuyển tiếp lưu lượng xuống đường hầm máy cục bộ)
-[ Tiến Trình Xray Cục Bộ ] ───> Giải mã payload VLESS -> Phân giải ra Internet công cộng
-
-```
-
-1. **Cơ Chế Vượt DPI:** Ứng dụng V2ray phía client set trường `Address` thành domain zero-rated (ví dụ: `api24-normal-alisg.tiktokv.com`). Domain này **chỉ dùng để tra cứu DNS** lấy IP Cloudflare Anycast. Trường `SNI` trong TLS ClientHello được đặt thành domain tunnel (ví dụ: `ten-mien-tunnel-cua-ban.com`), **không phải** domain TikTok.
-2. **Whitelist Theo IP/ASN:** Nhà mạng cho qua lưu lượng dựa trên dải IP/ASN của Cloudflare mà không chặn lọc kỹ SNI/Host thực tế.
-3. **Trùng Dải Anycast:** Vì TikTok dùng chung hạ tầng Cloudflare Anycast, các tunnel chạy qua Cloudflare cũng được hưởng lợi từ chính sách miễn phí data này.
-4. **Điều Hướng Lớp Layer 7:** Edge Node giải mã TLS, đọc `Host Header` và định tuyến dữ liệu chính xác về tiến trình Xray cục bộ.
-
----
-
-## Các Tính Năng Của Script
-
-- **Điều Phối Môi Trường Tự Động:** Tự động tạo và kiểm tra file `.env`.
-- **Hỗ Trợ Cả Tunnel Tạm Thời & Domain Riêng:** Tự động nhận diện `TUNNEL_TOKEN` để khởi tạo Cloudflare Tunnel ngẫu nhiên (`trycloudflare.com`) hoặc Tunnel cố định với Tên miền riêng.
-- **Tích Hợp WARP Outbound:** Hỗ trợ định tuyến đầu ra Xray qua Cloudflare WARP (bằng `wgcf`) khi bật `ENABLE_WARP=true`.
-- **Quản Lý Binary Tự Động:** Tự động tải Xray, Cloudflared, WGCF phù hợp với hệ điều hành (Windows/Linux/Termux).
-- **Ghi Log Bất Đồng Bộ & Web UI Monitor:** Tích hợp sẵn giao diện theo dõi log qua HTTP local server (`logging_site.py`).
-- **Xuất Cấu Hình & Webhook:** Tự động xuất link ra file `frp_info.config`, `frp_info.json` và gửi thông báo qua `WEBHOOK_URL` (nếu cấu hình).
-
----
-
-## Cài Đặt & Sử Dụng
+## Bắt đầu nhanh
 
 ```bash
-# Tải source code về máy
-git clone [https://github.com/vincentng295/xray_vless_ws_server](https://github.com/vincentng295/xray_vless_ws_server)
-
-# Di chuyển vào thư mục project
+git clone https://github.com/takeshi7502/xray_vless_ws_server
 cd xray_vless_ws_server
-
-# Cài đặt thư viện Python
 pip install -r requirements.txt
-
-# Bật server
-python main.py
-
+bash run.sh
 ```
 
----
+Chọn một chế độ:
 
-## Cấu Hình Tệp Môi Trường (`.env`)
+1. **Quick Tunnel** — nhanh nhất, không cần domain. Cloudflare cấp một hostname `*.trycloudflare.com` ngẫu nhiên mỗi lần chạy.
+2. **Named Tunnel** — domain cố định thông qua Cloudflare Named Tunnel (connector token).
+3. **Direct** — domain cố định thông qua Cloudflare proxied DNS trỏ thẳng tới VPS (không dùng `cloudflared`).
+
+## So sánh các chế độ
+
+| | Quick Tunnel | Named Tunnel | Direct |
+|---|---|---|---|
+| Cần domain | Không | Có (Zero Trust) | Có (Cloudflare DNS) |
+| Chạy `cloudflared` | Có | Có | Không |
+| Hostname | Ngẫu nhiên mỗi lần chạy | Cố định | Cố định |
+| Cổng origin cho Xray | loopback `8888` | loopback `8888` | public `80` |
+| Cổng link client | TLS `443` | TLS `443` | TLS `443` |
+| Đường lên Cloudflare | outbound | outbound | inbound (proxied DNS) |
+
+## 1. Quick Tunnel (`quick_tunnel`)
+
+Chế độ mặc định. Script tự tải `cloudflared` nếu thiếu, khởi động tunnel tạm trỏ tới `http://127.0.0.1:8888`, đọc hostname ngẫu nhiên `*.trycloudflare.com` và in link VLESS.
+
+- Hostname thay đổi mỗi lần khởi động lại (không có đảm bảo uptime).
+- Muốn hostname cố định: dùng Cloudflare Worker đặt trước tunnel, hoặc dùng chế độ 2 / chế độ 3.
+
+## 2. Named Tunnel (`named_tunnel`)
+
+Cần một domain đã thêm vào Cloudflare Zero Trust.
+
+Trong dashboard Cloudflare Zero Trust:
+
+1. **Networks → Tunnels → Create a tunnel → Cloudflared**, rồi copy connector token.
+2. Thêm **Public Hostname**: hostname = domain của bạn, service = `http://127.0.0.1:8888`.
+
+Tunnel chỉ kết nối **ra ngoài** (outbound), nên bạn **không** cần bản ghi A/AAAA trỏ về máy này và **không** cần mở cổng inbound cho Xray.
+
+## 3. Direct (`direct`)
+
+Không tải hay chạy `cloudflared`. Cloudflare edge kết thúc TLS và chuyển tiếp HTTP/WebSocket plaintext tới origin VPS.
+
+1. Trong Cloudflare DNS: thêm `vless.example.com → A → <IP VPS>`, bật proxy (đám mây cam).
+2. Cloudflare **SSL/TLS → encryption mode = Flexible**.
+3. Origin Xray lắng nghe `0.0.0.0:80` (WebSocket plaintext).
+
+> [!WARNING]
+> Ở chế độ Direct, đoạn origin (Cloudflare → VPS) là HTTP/WebSocket plaintext. Muốn bảo mật hơn hãy dùng reverse proxy có chứng chỉ và đổi SSL/TLS sang Full/Full (strict).
+
+> [!TIP]
+> Chỉ mở inbound TCP `80` cho các dải IP của Cloudflare để origin không bị truy cập trực tiếp.
+
+## Cấu hình (`.env`)
+
+`run.sh` sẽ ghi file này cho bạn. Xem `.env.example` để có mẫu cho cả ba chế độ.
 
 ```ini
-PORT=127.0.0.1:8888,0.0.0.0:443,0.0.0.0:80
-XRAY_UUID=5ccad305-e243-4bb2-abf0-1e37189ce4e8
-FAKE_SNI=api24-normal-alisg.tiktokv.com
+RUN_MODE=quick_tunnel
+PORT=127.0.0.1:8888
+XRAY_UUID=
+FAKE_SNI=api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com
 WS_PATH=/tiktok4g
-WS_HOST=v2ray.tenmien.com
-TUNNEL_TOKEN=eyJhSWQiOiI...
+WS_HOST=trycloudflare.com
+TRANSPORT=websocket
 ENABLE_WARP=false
 WEBHOOK_URL=
-
+TUNNEL_TOKEN=
 ```
 
-### Giải Thích Các Biến Cấu Hình:
+| Khóa | Ý nghĩa |
+|---|---|
+| `RUN_MODE` | `quick_tunnel`, `named_tunnel`, hoặc `direct` |
+| `PORT` | Danh sách địa chỉ/cổng inbound của Xray, cách nhau bằng dấu phẩy |
+| `XRAY_UUID` | UUID xác thực client VLESS (tự sinh nếu để trống) |
+| `FAKE_SNI` | Danh sách domain zero-rated dùng để phân giải DNS/IP, cách nhau bằng dấu phẩy |
+| `WS_PATH` | Đường dẫn WebSocket |
+| `WS_HOST` | Domain riêng cho Named/Direct, hoặc `trycloudflare.com` cho Quick |
+| `TRANSPORT` | `websocket` (hiện là giá trị duy nhất được hỗ trợ) |
+| `ENABLE_WARP` | `true` để định tuyến outbound qua Cloudflare WARP |
+| `WEBHOOK_URL` | Endpoint tùy chọn để nhận payload kết nối |
+| `TUNNEL_TOKEN` | Connector token chỉ dùng cho chế độ Named Tunnel |
 
-* **`PORT`**: Các cổng/giao diện mạng cho Xray lắng nghe.
-* **`XRAY_UUID`**: Mã UUID xác thực người dùng VLESS.
-* **`FAKE_SNI`**: Tên miền miễn phí data dùng để phân giải IP kết nối.
-* **`WS_PATH`**: Đường dẫn WebSocket path.
-* **`WS_HOST`**: Tên miền riêng cấu hình trên Cloudflare Tunnel, hoặc để `trycloudflare.com` nếu dùng tunnel tạm thời.
-* **`TUNNEL_TOKEN`**: Token của Cloudflare Tunnel nếu bạn muốn dùng Domain riêng cố định. Để trống nếu muốn dùng tunnel miễn phí ngẫu nhiên.
-* **`ENABLE_WARP`**: Đặt `true` để bật WARP làm outbound cho Xray (qua `wgcf`).
-* **`WEBHOOK_URL`**: Đường dẫn webhook tùy chọn để nhận thông tin cấu hình link sau khi khởi tạo thành công.
+## Chạy trên VPS
 
----
+Dùng trực tiếp `python3 main.py` nếu không muốn dùng menu tương tác, hoặc `bash run.sh` cho luồng có hướng dẫn. Origin không tự kết thúc TLS; Cloudflare xử lý TLS trên cổng 443.
 
-## Lời Cảm Ơn
+## Lưu ý
 
-Bằng cách dịch ngược các dịch vụ bypass 4G thương mại trong cộng đồng, cơ chế cấu trúc của framework này đã được xác thực thành công.
+Đây là proof-of-concept mang tính giáo dục. Nó không đảm bảo zero-rating, miễn phí dung lượng, hay vượt DPI của bất kỳ nhà mạng nào. Hãy dùng có trách nhiệm và tuân thủ điều khoản của nhà mạng cũng như pháp luật hiện hành.

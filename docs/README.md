@@ -1,128 +1,101 @@
-# Xray VLESS-WS Bypass Protocol: Anycast IP-Range Piggybacking (Proof of Concept)
+# Xray VLESS-WS Server (Proof of Concept)
 
 [Xem phiên bản Tiếng Việt](https://vincentng295.github.io/xray_vless_ws_server/README_vi)
 
-An automated, educational Python-based Proof of Concept (PoC) demonstrating how to leverage **Xray-Core** and **Cloudflare Tunnels** (both dynamic `trycloudflare.com` and custom domains) to establish a secure VLESS-WebSocket proxy. This repository serves as a localized staging environment to validate Layer 7 deep-packet inspection (DPI) bypasses over zero-rated carrier networks (e.g., TikTok bundles) before committing to production infrastructure.
+An educational Python proof-of-concept that runs an **Xray-Core** VLESS-WebSocket server and exposes it through **Cloudflare** in three ways. Use the bundled `run.sh` to pick a mode interactively; it writes a valid `.env` and starts the server.
 
-The idea of this project came from here: [The Anatomy of a Loophole: A Tech-Enthusiast's Journey into Layer-7 Decoupling](https://vincentng295.github.io/xray_vless_ws_server/IDEAS)
-
----
-
-## Architecture: PoC vs. Custom Domain & Production
-
-Understanding the progression from temporary testing environments to custom domains and commercial production infrastructure:
-
-### 1. Ephemeral Cloudflare Tunnel (Quick Testing)
-* **Infrastructure:** Utilizes temporary Cloudflare Tunnels generated dynamically via `cloudflared tunnel --url`.
-* **Limitation:** Cloudflare dynamically assigns a random subdomain (e.g., `*.trycloudflare.com`) on every script execution. It is excellent for free, fast, zero-configuration network logic validation, but unsuitable for persistent environments.
-
-### 2. Custom Domain via Cloudflare Named Tunnel (Supported in `main.py`)
-* **Infrastructure:** By supplying a `TUNNEL_TOKEN` and specifying your custom domain in `WS_HOST` within `.env`, the script automatically switches from temporary URLs to a persistent Cloudflare Named Tunnel.
-* **Advantage:** Gives you a fixed, custom domain (e.g., `v2ray.yourdomain.com`) without needing a public IP on your local/homelab setup, maintaining stable VLESS configuration links.
-
-### 3. Commercial / Production Infrastructure
-To build a resilient, high-speed, and multi-user commercial platform:
-* **Dedicated Virtual Private Servers (VPS):** A Linux VPS (Ubuntu) equipped with a dedicated Public IP is leased. Xray runs natively, accepting direct high-throughput connections on standard network ports (e.g., 80, 443) with optimal peering latency.
-* **Cloudflare for SaaS (Custom Hostnames):** Instead of ephemeral paths, a vanity domain is registered and linked to Cloudflare SaaS (**Custom Hostnames** combined with a **Fallback Origin** pointing to the VPS IP) to permanently separate entry gateway IPs from core proxy servers.
-
----
-
-## Technical Operating Principle
-
-The core mechanism relies on IP/ASN-level whitelisting at the carrier, decoupled from what is actually inspected (or not inspected) at the TLS/HTTP layer:
-
-
-```
-
-[ Client Device ]
-│
-│ (1) DNS lookup of api24-normal-alisg.tiktokv.com
-│     -> resolves to a Cloudflare Anycast IP that TikTok itself uses
-▼
-[ Telco DPI / Firewall ] ─── (Only checks: is destination IP/ASN in the
-│                              whitelisted TikTok/Cloudflare range? -> yes -> forwards,
-│                              unmetered, WITHOUT inspecting SNI or Host header)
-│
-│ (2) TLS ClientHello sent to that IP — SNI = your-tunnel-domain.com
-│     (NOT api24-normal-alisg.tiktokv.com — see main.py: `sni` in the vless
-│     link is set to the tunnel host, the tiktok domain is only used to
-│     resolve the destination IP)
-▼
-[ Cloudflare Edge Node ]
-│
-├─ terminates the TLS connection using the SNI (tunnel host) presented above.
-├─ reads the inner HTTP Host Header: [your-tunnel-domain.com].
-└─ maps the host payload to your authenticated active tunnel.
-│
-▼ (Forwards traffic down the local machine tunnel pipeline)
-[ Local Xray Instance ] ───> Decrypts VLESS payload -> Resolves to Public Internet
-
-```
-
-1. **The DPI Bypass:** The client's V2ray app sets the `Address` field to a zero-rated carrier domain like `api24-normal-alisg.tiktokv.com`. This is only used to perform a **DNS lookup** so the client connects to whichever Cloudflare Anycast IP TikTok itself resolves to. The `SNI` sent in the actual TLS ClientHello is the Cloudflare tunnel host (e.g., `your-tunnel-domain.com`), **not** the TikTok domain.
-2. **IP/ASN Whitelisting:** The Mobile Network Operator (MNO) whitelists traffic based on destination **IP address or ASN/prefix range** owned by Cloudflare, passing traffic unmetered regardless of the presented SNI or Host header.
-3. **Anycast Realignment:** Because TikTok routes API nodes natively through Cloudflare Anycast, the carrier's coarse IP-range whitelist covers all Cloudflare tenants on that same range.
-4. **Layer 7 Redirect:** The edge node terminates TLS using the presented SNI, inspects the `Host Header` (`host=your-tunnel-domain.com`), and routes traffic down to your active Xray server.
-
----
-
-## Script Features
-
-- **Dynamic Local Environment Orchestration:** Automated verification and generation of localized `.env` dependencies.
-- **Support for Both Quick & Named Tunnels:** Automatically detects whether to launch a temporary `trycloudflare.com` tunnel or a persistent custom domain tunnel via `TUNNEL_TOKEN`.
-- **WARP Outbound Integration:** Optional Cloudflare WARP egress routing via `wgcf-cli` (`ENABLE_WARP=true`) for privacy and bypassing strict target IP bans.
-- **Auto-Architecture Binary Management:** Bundled standalone injectors (`download-xray.py`, `download-cloudflared.py`, `download-wgcf.py`) detect client platform kernels to pull current runtime binaries natively.
-- **Asynchronous Engine Logging & Embedded Web UI Monitor:** Real-time log relay through an integrated background HTTP daemon (`logging_site.py`).
-- **Webhook & JSON Export:** Auto-generates `frp_info.config` and `frp_info.json`, optionally dispatching payloads to a remote `WEBHOOK_URL`.
-
----
-
-## Installation & Usage
+## Quick start
 
 ```bash
-# Clone the source code
-git clone [https://github.com/vincentng295/xray_vless_ws_server](https://github.com/vincentng295/xray_vless_ws_server)
-
-# Move into the project directory
+git clone https://github.com/takeshi7502/xray_vless_ws_server
 cd xray_vless_ws_server
-
-# Install the required Python dependencies
 pip install -r requirements.txt
-
-# Start the server
-python main.py
-
+bash run.sh
 ```
 
----
+Pick a mode:
+
+1. **Quick Tunnel** — fastest, no domain. Cloudflare assigns a random `*.trycloudflare.com` hostname on every start.
+2. **Named Tunnel** — fixed custom domain via a Cloudflare Named Tunnel (connector token).
+3. **Direct** — fixed custom domain via Cloudflare proxied DNS pointing straight to your VPS (no `cloudflared`).
+
+## Mode comparison
+
+| | Quick Tunnel | Named Tunnel | Direct |
+|---|---|---|---|
+| Requires a domain | No | Yes (Zero Trust) | Yes (Cloudflare DNS) |
+| Runs `cloudflared` | Yes | Yes | No |
+| Hostname | Random each start | Fixed | Fixed |
+| Origin port for Xray | loopback `8888` | loopback `8888` | public `80` |
+| Client link port | TLS `443` | TLS `443` | TLS `443` |
+| Upstream to Cloudflare | outbound | outbound | inbound (proxied DNS) |
+
+## 1. Quick Tunnel (`quick_tunnel`)
+
+Default mode. The script downloads `cloudflared` if needed, starts a temporary tunnel pointing at `http://127.0.0.1:8888`, parses the random `*.trycloudflare.com` hostname, and prints VLESS links.
+
+- The hostname changes on every restart (no uptime guarantee).
+- For a fixed hostname, use a Cloudflare Worker in front of the tunnel, or use mode 2 / mode 3.
+
+## 2. Named Tunnel (`named_tunnel`)
+
+Requires a domain added to Cloudflare Zero Trust.
+
+In the Cloudflare Zero Trust dashboard:
+
+1. **Networks → Tunnels → Create a tunnel → Cloudflared**, then copy the connector token.
+2. Add a **Public Hostname**: hostname = your domain, service = `http://127.0.0.1:8888`.
+
+The tunnel only connects **outbound**, so you do **not** need an A/AAAA record pointing at this machine and do **not** need to open inbound Xray ports.
+
+## 3. Direct (`direct`)
+
+No `cloudflared` is downloaded or run. Cloudflare's edge terminates TLS and forwards plaintext HTTP/WebSocket to your VPS origin.
+
+1. In Cloudflare DNS: add `vless.example.com → A → <your VPS IP>`, proxy **ON** (orange cloud).
+2. Cloudflare **SSL/TLS → encryption mode = Flexible**.
+3. Origin Xray listens on `0.0.0.0:80` (plaintext WebSocket).
+
+> [!WARNING]
+> In Direct mode the origin leg (Cloudflare → VPS) is plaintext HTTP/WebSocket. For stronger security use a reverse proxy with a certificate and switch SSL/TLS to Full/Full (strict).
+
+> [!TIP]
+> Restrict inbound TCP `80` to Cloudflare IP ranges only, so the origin cannot be reached directly.
 
 ## Configuration (`.env`)
 
+`run.sh` writes this file for you. See `.env.example` for all three mode presets.
+
 ```ini
-PORT=127.0.0.1:8888,0.0.0.0:443,0.0.0.0:80
-XRAY_UUID=5ccad305-e243-4bb2-abf0-1e37189ce4e8
-FAKE_SNI=api24-normal-alisg.tiktokv.com
+RUN_MODE=quick_tunnel
+PORT=127.0.0.1:8888
+XRAY_UUID=
+FAKE_SNI=api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com
 WS_PATH=/tiktok4g
-WS_HOST=v2ray.yourdomain.com
-TUNNEL_TOKEN=eyJhSWQiOiI...
+WS_HOST=trycloudflare.com
+TRANSPORT=websocket
 ENABLE_WARP=false
 WEBHOOK_URL=
-
+TUNNEL_TOKEN=
 ```
 
-### Parameter Description:
+| Key | Meaning |
+|---|---|
+| `RUN_MODE` | `quick_tunnel`, `named_tunnel`, or `direct` |
+| `PORT` | Comma-separated Xray inbound listen addresses/ports |
+| `XRAY_UUID` | VLESS client UUID (auto-generated if blank) |
+| `FAKE_SNI` | Comma-separated list of zero-rated domains used for DNS/IP resolution |
+| `WS_PATH` | WebSocket path |
+| `WS_HOST` | Custom domain for Named/Direct, or `trycloudflare.com` for Quick |
+| `TRANSPORT` | `websocket` (currently the only supported value) |
+| `ENABLE_WARP` | `true` to route outbound through Cloudflare WARP |
+| `WEBHOOK_URL` | Optional endpoint to receive connection payloads |
+| `TUNNEL_TOKEN` | Connector token for Named Tunnel mode only |
 
-* **`PORT`**: Comma-separated list of inbound ports/interfaces for Xray.
-* **`XRAY_UUID`**: UUID string used for VLESS client authentication.
-* **`FAKE_SNI`**: Zero-rated domain used by clients for DNS/IP resolution (e.g., TikTok CDN domain).
-* **`WS_PATH`**: WebSocket path endpoint.
-* **`WS_HOST`**: Custom domain for your Named Tunnel, or `trycloudflare.com` for quick temporary tunnels.
-* **`TUNNEL_TOKEN`**: Cloudflare Tunnel Token for persistent custom domain setup. Leave blank to use free temporary `trycloudflare.com` URLs.
-* **`ENABLE_WARP`**: Set to `true` to route Xray outbound through Cloudflare WARP (via `wgcf`).
-* **`WEBHOOK_URL`**: Optional endpoint to receive connection payloads upon tunnel initialization.
+## Running on a VPS
 
----
+Use `python3 main.py` directly if you do not want the interactive menu, or `bash run.sh` for the guided flow. The origin never terminates TLS itself; Cloudflare handles TLS on port 443.
 
-## Acknowledgements
+## Disclaimer
 
-By reverse engineering commercial 4G bypass services, the structural mechanics of this framework were successfully verified.
+This is an educational proof of concept. It does not guarantee zero-rating, unmetered traffic, or bypass of any carrier's DPI. Use responsibly and comply with your network provider's terms and applicable law.
