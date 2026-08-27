@@ -39,12 +39,94 @@ uuid_gen(){
     fi
 }
 
-run_python(){
-    if command -v python3 >/dev/null 2>&1; then
-        python3 main.py
-    else
-        python main.py
+# --- Python dependency bootstrap ---
+detect_python(){
+    # Prefer project .venv, then python3, then python (verify Python 3)
+    if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+        echo "$SCRIPT_DIR/.venv/bin/python"
+        return
     fi
+    if command -v python3 >/dev/null 2>&1; then
+        echo python3
+        return
+    fi
+    if command -v python >/dev/null 2>&1; then
+        if python -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' 2>/dev/null; then
+            echo python
+            return
+        fi
+    fi
+    err "Python 3 not found. Install python3 on Debian/Ubuntu: sudo apt-get install python3 python3-venv python3-pip"
+}
+
+ensure_python_deps(){
+    local py="$1"
+    # Check if runtime deps are already importable
+    if "$py" -c "import dotenv, requests, zstandard" 2>/dev/null; then
+        return 0
+    fi
+
+    warn "Missing Python dependencies (python-dotenv, requests, zstandard). Installing..."
+
+    # Determine if we are already in a venv
+    if "$py" -c 'import sys; sys.exit(0 if hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix) else 1)' 2>/dev/null; then
+        "$py" -m pip install -q python-dotenv requests zstandard 2>&1 | tail -5
+        if "$py" -c "import dotenv, requests, zstandard" 2>/dev/null; then
+            ok "Dependencies installed into virtualenv."
+            return 0
+        fi
+        err "pip install failed. Check the output above."
+        return 1
+    fi
+
+    # Try user install first (safest for system Python)
+    if "$py" -m pip install --user -q python-dotenv requests zstandard 2>/dev/null; then
+        if "$py" -c "import dotenv, requests, zstandard" 2>/dev/null; then
+            ok "Dependencies installed (--user)."
+            return 0
+        fi
+    fi
+
+    # PEP 668: --break-system-packages fallback
+    if "$py" -m pip install --break-system-packages -q python-dotenv requests zstandard 2>/dev/null; then
+        if "$py" -c "import dotenv, requests, zstandard" 2>/dev/null; then
+            ok "Dependencies installed (--break-system-packages)."
+            return 0
+        fi
+    fi
+
+    # Create project-local venv
+    info "Creating project-local virtualenv (.venv/)..."
+    if ! "$py" -m venv --help >/dev/null 2>&1; then
+        err "The 'venv' module is not available."
+        if [ "$(uname -s)" = "Linux" ] && (command -v apt-get >/dev/null 2>&1); then
+            info "On Debian/Ubuntu, install it with: sudo apt-get install python3-venv python3-pip"
+        fi
+        return 1
+    fi
+
+    "$py" -m venv "$SCRIPT_DIR/.venv"
+    if [ ! -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+        err "Failed to create .venv."
+        return 1
+    fi
+    local venv_py="$SCRIPT_DIR/.venv/bin/python"
+    "$venv_py" -m pip install -q python-dotenv requests zstandard 2>&1 | tail -5
+    if "$venv_py" -c "import dotenv, requests, zstandard" 2>/dev/null; then
+        ok "Dependencies installed into .venv/."
+        PYBIN="$venv_py"
+        return 0
+    fi
+    err "Failed to install dependencies into .venv. Check the output above."
+    return 1
+}
+
+run_python(){
+    PYBIN="$(detect_python)"
+    [ -z "$PYBIN" ] && return 1
+    ok "Using Python: $PYBIN"
+    ensure_python_deps "$PYBIN" || return 1
+    "$PYBIN" main.py
 }
 
 write_env(){
@@ -179,11 +261,18 @@ kill_runtime_processes(){
         local cwd=""
         cwd="$(readlink "/proc/$p/cwd" 2>/dev/null || true)"
         [ "$cwd" = "$SCRIPT_DIR" ] || continue
+        local exe=""
+        exe="$(readlink "/proc/$p/exe" 2>/dev/null || true)"
+        case "$exe" in
+            "$SCRIPT_DIR/xray"|"$SCRIPT_DIR/cloudflared"|"$SCRIPT_DIR/wgcf-cli")
+                kill "$p" 2>/dev/null && { found=1; ok "Stopped process $p ($(basename "$exe"))"; }
+                ;;
+        esac
         local cmdline=""
         cmdline="$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null || true)"
         case "$cmdline" in
-            *xray*|*cloudflared*|*wgcf-cli*)
-                kill "$p" 2>/dev/null && { found=1; ok "Stopped process $p ($cmdline)"; }
+            *main.py*)
+                kill "$p" 2>/dev/null && { found=1; ok "Stopped process $p (python main.py)"; }
                 ;;
         esac
     done
@@ -195,10 +284,15 @@ kill_runtime_processes(){
             local cwd=""
             cwd="$(readlink "/proc/$p/cwd" 2>/dev/null || true)"
             [ "$cwd" = "$SCRIPT_DIR" ] || continue
+            local exe=""
+            exe="$(readlink "/proc/$p/exe" 2>/dev/null || true)"
+            case "$exe" in
+                "$SCRIPT_DIR/xray"|"$SCRIPT_DIR/cloudflared"|"$SCRIPT_DIR/wgcf-cli") kill -9 "$p" 2>/dev/null ;;
+            esac
             local cmdline=""
             cmdline="$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null || true)"
             case "$cmdline" in
-                *xray*|*cloudflared*|*wgcf-cli*) kill -9 "$p" 2>/dev/null ;;
+                *main.py*) kill -9 "$p" 2>/dev/null ;;
             esac
         done
     fi
@@ -211,7 +305,7 @@ uninstall_mode(){
     echo "  - Binaries: xray, cloudflared, wgcf-cli (and .exe variants)"
     echo "  - Generated: .env, config.json, wgcf.json, wgcf.xray.json, frp_info.json, frp_info.config, frpc.toml, config.yml"
     echo "  - Temp leftovers: xray.zip, cloudflared_temp.archive, wgcf-cli.tar.zstd"
-    echo "  - Folders: xray_bin, wgcf_bin, __pycache__"
+    echo "  - Folders: xray_bin, wgcf_bin, __pycache__, .venv"
     echo
     info "Source files (main.py, run.sh, docs, .git, requirements.txt) are NEVER touched."
     echo
@@ -231,7 +325,7 @@ uninstall_mode(){
             rm -rf -- "$item" && { ok "Removed $item"; removed=1; }
         fi
     done
-    for item in xray_bin wgcf_bin __pycache__; do
+    for item in xray_bin wgcf_bin __pycache__ .venv; do
         if [ -d "$item" ]; then
             rm -rf -- "$item" && { ok "Removed $item/"; removed=1; }
         fi

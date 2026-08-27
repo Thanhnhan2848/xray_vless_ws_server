@@ -9,3 +9,4 @@ frp_info.json
 wgcf.json
 wgcf.xray.json
 config.yml
+.venv/
