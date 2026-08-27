@@ -374,32 +374,33 @@ def main():
 
         payloads = []
 
-        if RUN_MODE == "direct":
-            # Direct mode: client connects to the Cloudflare-proxied domain
-            # (WS_HOST) on TLS port 443. Cloudflare edge terminates TLS and
-            # forwards plaintext HTTP/WebSocket to the origin on port 80.
+        mode_prefix = "Direct" if RUN_MODE == "direct" else "Tunnel"
+        sni_list = fake_sni.split(",")
+
+        for idx, sni_entry in enumerate(sni_list):
+            sni_entry = sni_entry.strip()
+            if "#" in sni_entry:
+                sni, remark = sni_entry.split("#", 1)
+                sni = sni.strip()
+                remark = remark.strip() or f"{mode_prefix} {idx+1}"
+            else:
+                sni = sni_entry
+                remark = f"{mode_prefix} {idx+1}"
+
+            encoded_remark = urllib.parse.quote(remark, safe='')
+
+            # TLS link: address=FAKE_SNI, sni=WS_HOST (domain that)
+            # ISP only sees connection to FAKE_SNI (e.g. tiktok.com)
+            # Cloudflare uses SNI to route to user's real domain
             payloads.append(
-                f"vless://{uuid_str}@{tunnel_host_info}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#Direct%20TLS"
+                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS"
             )
-        else:
-            sni_list = fake_sni.split(",")
 
-            for idx, sni_entry in enumerate(sni_list):
-                sni_entry = sni_entry.strip()
-                if "#" in sni_entry:
-                    sni, remark = sni_entry.split("#", 1)
-                    sni = sni.strip()
-                    remark = remark.strip() or f"Tunnel {idx+1}"
-                else:
-                    sni = sni_entry
-                    remark = f"Tunnel {idx+1}"
-
-                encoded_remark = urllib.parse.quote(remark, safe='')
-
-                payloads.extend([
-                    f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS",
+            # NO-TLS link (non-standard, only for tunnel modes)
+            if RUN_MODE != "direct":
+                payloads.append(
                     f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_remark}%20NO%20TLS"
-                ])
+                )
 
         if RUN_MODE == "direct":
             print("\n" + "="*70)
