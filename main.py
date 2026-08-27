@@ -374,7 +374,7 @@ def main():
 
         payloads = []
 
-        mode_prefix = "Direct" if RUN_MODE == "direct" else "Tunnel"
+        mode_prefix_map = {"quick_tunnel": "Quick Tunnel", "named_tunnel": "Named Tunnel", "direct": "Direct"}; mode_prefix = mode_prefix_map.get(RUN_MODE, "Tunnel")
         sni_list = fake_sni.split(",")
 
         for idx, sni_entry in enumerate(sni_list):
