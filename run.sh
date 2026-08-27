@@ -46,7 +46,11 @@ uuid_gen(){
 # =========== Python dependency bootstrap ===========
 detect_python(){
     if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
-        echo "$SCRIPT_DIR/.venv/bin/python"; return
+        if "$SCRIPT_DIR/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
+            echo "$SCRIPT_DIR/.venv/bin/python"; return
+        fi
+        warn "Broken .venv detected (no pip). Removing..."
+        rm -rf "$SCRIPT_DIR/.venv"
     fi
     if command -v python3 >/dev/null 2>&1; then
         echo python3; return
@@ -79,11 +83,20 @@ ensure_python_deps(){
 
     # Already in a venv? pip install directly.
     if "$py" -c 'import sys; sys.exit(0 if hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix) else 1)' 2>/dev/null; then
-        "$py" -m pip install -q python-dotenv requests zstandard 2>&1 | tail -5
-        if "$py" -c "import dotenv, requests, zstandard" 2>/dev/null; then
-            ok "Dependencies installed into virtualenv."; return 0
+        if "$py" -m pip install -q python-dotenv requests zstandard 2>&1 | tail -5; then
+            if "$py" -c "import dotenv, requests, zstandard" 2>/dev/null; then
+                ok "Dependencies installed into virtualenv."; return 0
+            fi
         fi
-        err "pip install failed."; return 1
+        # If this is our own broken .venv, remove it and fall through to recreate
+        if [[ "$py" = "$SCRIPT_DIR/.venv/"* ]]; then
+            warn "pip failed in .venv. Removing broken .venv and recreating..."
+            rm -rf "$SCRIPT_DIR/.venv"
+            py="$(command -v python3 2>/dev/null || command -v python 2>/dev/null)"
+            [ -z "$py" ] && { err "No system Python3 found."; return 1; }
+        else
+            err "pip install failed in external virtualenv."; return 1
+        fi
     fi
 
     # Try pip --user
