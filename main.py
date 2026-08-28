@@ -25,13 +25,14 @@ def main():
     default_configs = {
         "PORT": "127.0.0.1:8888",
         "XRAY_UUID": str(uuid.uuid4()),
-        "FAKE_SNI": "api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com",
+        "FAKE_SNI": "api24-normal-alisg.tiktokv.com#Free Tiktok,vnpt.theworkpc.com#Free Vina Ko Nen",
         "WS_PATH": "/tiktok4g",
         "WS_HOST": "trycloudflare.com",
         "TRANSPORT": "websocket",
         "ENABLE_WARP": "false",
         "WEBHOOK_URL": "",
         "TUNNEL_TOKEN": "",
+        "COUNTRY_CODE": "",
         "RUN_MODE": "quick_tunnel"
     }
     START_TIME = int(time.time())
@@ -76,6 +77,7 @@ def main():
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
     DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
     RUN_MODE = get_os_env("RUN_MODE").strip().lower()
+    COUNTRY_CODE = get_os_env("COUNTRY_CODE").strip().upper()
 
     # Normalize RUN_MODE. Old .env files without RUN_MODE default to quick_tunnel.
     ALLOWED_RUN_MODES = ("quick_tunnel", "named_tunnel", "direct")
@@ -361,6 +363,19 @@ def main():
     if clp is not None:
         threading.Thread(target=monitor_cloudflare, args=(clp.stdout,), daemon=True).start()
 
+    # Friendly name map for known FAKE_SNI hostnames
+    FRIENDLY_NAME_MAP = {
+        "api24-normal-alisg.tiktokv.com": "Free Tiktok",
+        "vnpt.theworkpc.com": "Free Vina Ko Nen",
+    }
+
+    def flag_emoji(cc):
+        """Convert 2-letter ISO country code to flag emoji. Returns None if invalid."""
+        cc = (cc or "").strip().upper()
+        if len(cc) != 2 or not all("A" <= c <= "Z" for c in cc):
+            return None
+        return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in cc)
+
     def print_vless_links(tunnel_host, uuid_str, fake_sni, ws_path):
         import urllib.parse
         encoded_path = urllib.parse.quote(ws_path, safe='')
@@ -374,32 +389,36 @@ def main():
 
         payloads = []
 
-        mode_prefix_map = {"quick_tunnel": "Quick Tunnel", "named_tunnel": "Named Tunnel", "direct": "Direct"}; mode_prefix = mode_prefix_map.get(RUN_MODE, "Tunnel")
         sni_list = fake_sni.split(",")
+
+        country_flag = flag_emoji(COUNTRY_CODE)
+        country_prefix = f"[{country_flag}] {COUNTRY_CODE} | " if country_flag else ""
 
         for idx, sni_entry in enumerate(sni_list):
             sni_entry = sni_entry.strip()
             if "#" in sni_entry:
                 sni, remark = sni_entry.split("#", 1)
                 sni = sni.strip()
-                remark = remark.strip() or f"{mode_prefix} {idx+1}"
+                remark = remark.strip()
             else:
                 sni = sni_entry
-                remark = f"{mode_prefix} {idx+1}"
+                remark = ""
 
-            encoded_remark = urllib.parse.quote(remark, safe='')
+            base_label = remark or FRIENDLY_NAME_MAP.get(sni) or sni
+            label = f"{country_prefix}{base_label}"
+            encoded_label = urllib.parse.quote(label, safe='')
 
             # TLS link: address=FAKE_SNI, sni=WS_HOST (domain that)
             # ISP only sees connection to FAKE_SNI (e.g. tiktok.com)
             # Cloudflare uses SNI to route to user's real domain
             payloads.append(
-                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS"
+                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_label}%20443"
             )
 
             # NO-TLS link (non-standard, only for tunnel modes)
             if RUN_MODE != "direct":
                 payloads.append(
-                    f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_remark}%20NO%20TLS"
+                    f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_label}%2080"
                 )
 
         if RUN_MODE == "direct":

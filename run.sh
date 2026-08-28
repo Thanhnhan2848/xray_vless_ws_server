@@ -10,12 +10,12 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 DEF_PORT_QUICK="127.0.0.1:8888"
 DEF_PORT_NAMED="127.0.0.1:8888"
 DEF_PORT_DIRECT="0.0.0.0:80"
-DEF_FAKE_SNI="api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com"
+DEF_FAKE_SNI="api24-normal-alisg.tiktokv.com#Free Tiktok,vnpt.theworkpc.com#Free Vina Ko Nen"
 DEF_WS_PATH="/tiktok4g"
 DEF_WS_HOST="trycloudflare.com"
 DEF_TRANSPORT="websocket"
 
-RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"
+RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; COUNTRY_CODE=""
 
 header(){ echo; echo -e "${CYAN}===================================================${NC}"; echo -e "${GREEN} $1${NC}"; echo -e "${CYAN}===================================================${NC}"; }
 ok(){ echo -e " ${GREEN}[OK]${NC} $1"; }
@@ -25,6 +25,18 @@ info(){ echo -e " ${BLUE}[i]${NC}  $1"; }
 pause_next(){ echo; read -r -p " Press Enter to continue..." _; }
 ask_yes_no(){ local ans hint default="${2:-y}"; [ "$default" = "y" ] && hint="Y/n" || hint="y/N"; read -r -p " $1 [$hint]: " ans; ans="${ans:-$default}"; [[ "$ans" =~ ^[Yy]$ ]]; }
 ask_val(){ local prompt="$1" default="$2" ans; read -r -p " $prompt [$default]: " ans; [ -n "$ans" ] && echo "$ans" || echo "$default"; }
+ask_country(){
+    local ans cc
+    echo
+    echo -e " ${BLUE}[i]${NC}  Server country flag (optional)"
+    echo -e "      Hint: VN  JP  US  SG  DE  FR  KR  HK  TW  NL  GB  AU  CA"
+    read -r -p " Country code (Enter to skip) [${COUNTRY_CODE:-}]: " ans
+    if [ -n "$ans" ]; then
+        cc="$(printf '%s' "$ans" | tr 'a-z' 'A-Z' | tr -dc 'A-Z')"
+        COUNTRY_CODE="${cc:0:2}"
+    fi
+    [ -n "$COUNTRY_CODE" ] && ok "Country: $COUNTRY_CODE" || info "No country flag."
+}
 env_get(){ grep -E "^$1=" .env 2>/dev/null | head -n1 | cut -d= -f2-; }
 
 run_as_root(){
@@ -134,6 +146,7 @@ write_env(){
         echo "FAKE_SNI=$FAKE_SNI"; echo "WS_PATH=$WS_PATH"; echo "WS_HOST=$WS_HOST"
         echo "TRANSPORT=$TRANSPORT"; echo "ENABLE_WARP=$ENABLE_WARP"
         echo "WEBHOOK_URL=$WEBHOOK_URL"; echo "TUNNEL_TOKEN=$TUNNEL_TOKEN"
+        echo "COUNTRY_CODE=$COUNTRY_CODE"
     } > .env
     ok "Written .env (RUN_MODE=$RUN_MODE)"
 }
@@ -144,6 +157,7 @@ load_existing(){
     WS_PATH="$(env_get WS_PATH)"; WS_HOST="$(env_get WS_HOST)"
     TUNNEL_TOKEN="$(env_get TUNNEL_TOKEN)"; ENABLE_WARP="$(env_get ENABLE_WARP)"
     WEBHOOK_URL="$(env_get WEBHOOK_URL)"; TRANSPORT="$(env_get TRANSPORT)"
+    COUNTRY_CODE="$(env_get COUNTRY_CODE)"
 }
 
 # ==================== Systemd ====================
@@ -223,6 +237,7 @@ quick_mode(){
     WS_PATH="$(ask_val "WebSocket path" "${WS_PATH:-$DEF_WS_PATH}")"
     RUN_MODE="quick_tunnel"; PORT="$DEF_PORT_QUICK"; WS_HOST="$DEF_WS_HOST"
     TUNNEL_TOKEN=""; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_country
     write_env
     # Remove old links so we detect fresh ones
     rm -f "$SCRIPT_DIR/frp_info.config"
@@ -247,6 +262,7 @@ named_mode(){
     RUN_MODE="named_tunnel"; PORT="$DEF_PORT_NAMED"
     UUID="${UUID:-$(uuid_gen)}"; FAKE_SNI="${FAKE_SNI:-$DEF_FAKE_SNI}"
     WS_PATH="${WS_PATH:-$DEF_WS_PATH}"; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_country
     write_env
     rm -f "$SCRIPT_DIR/frp_info.config"
     install_service || return 1
@@ -270,6 +286,7 @@ direct_mode(){
     RUN_MODE="direct"; UUID="${UUID:-$(uuid_gen)}"
     FAKE_SNI="${FAKE_SNI:-$DEF_FAKE_SNI}"; WS_PATH="${WS_PATH:-$DEF_WS_PATH}"
     TUNNEL_TOKEN=""; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_country
     write_env
     rm -f "$SCRIPT_DIR/frp_info.config"
     install_service || return 1
