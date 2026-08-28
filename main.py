@@ -33,6 +33,7 @@ def main():
         "WEBHOOK_URL": "",
         "TUNNEL_TOKEN": "",
         "COUNTRY_CODE": "",
+        "PORT_MODE": "both",
         "RUN_MODE": "quick_tunnel"
     }
     START_TIME = int(time.time())
@@ -78,6 +79,9 @@ def main():
     DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
     RUN_MODE = get_os_env("RUN_MODE").strip().lower()
     COUNTRY_CODE = get_os_env("COUNTRY_CODE").strip().upper()
+    PORT_MODE = get_os_env("PORT_MODE").strip().lower()
+    if PORT_MODE not in ("80", "443", "both"):
+        PORT_MODE = "both"
 
     # Normalize RUN_MODE. Old .env files without RUN_MODE default to quick_tunnel.
     ALLOWED_RUN_MODES = ("quick_tunnel", "named_tunnel", "direct")
@@ -408,15 +412,14 @@ def main():
             label = f"{country_prefix}{base_label}"
             encoded_label = urllib.parse.quote(label, safe='')
 
-            # TLS link: address=FAKE_SNI, sni=WS_HOST (domain that)
-            # ISP only sees connection to FAKE_SNI (e.g. tiktok.com)
-            # Cloudflare uses SNI to route to user's real domain
-            payloads.append(
-                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_label}%20443"
-            )
+            # TLS link (port 443)
+            if PORT_MODE in ("443", "both"):
+                payloads.append(
+                    f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_label}%20443"
+                )
 
-            # NO-TLS link (non-standard, only for tunnel modes)
-            if RUN_MODE != "direct":
+            # NO-TLS link (port 80, only for tunnel modes)
+            if PORT_MODE in ("80", "both") and RUN_MODE != "direct":
                 payloads.append(
                     f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_label}%2080"
                 )

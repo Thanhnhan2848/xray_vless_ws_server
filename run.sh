@@ -4,6 +4,12 @@ set -o pipefail
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; BLUE='\033[0;34m'; NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; cd "$SCRIPT_DIR" || exit 1
 
+# Detect Termux
+IS_TERMUX=false
+if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
+    IS_TERMUX=true
+fi
+
 SERVICE_NAME="xray-vless"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -15,7 +21,7 @@ DEF_WS_PATH="/tiktok4g"
 DEF_WS_HOST="trycloudflare.com"
 DEF_TRANSPORT="websocket"
 
-RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; COUNTRY_CODE=""; CUSTOM_DOMAIN=""
+RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; COUNTRY_CODE=""; CUSTOM_DOMAIN=""; PORT_MODE=""
 
 header(){ echo; echo -e "${CYAN}===================================================${NC}"; echo -e "${GREEN} $1${NC}"; echo -e "${CYAN}===================================================${NC}"; }
 ok(){ echo -e " ${GREEN}[OK]${NC} $1"; }
@@ -37,6 +43,39 @@ ask_country(){
     fi
     [ -n "$COUNTRY_CODE" ] && ok "Country: $COUNTRY_CODE" || info "No country flag."
 }
+ask_fake_sni(){
+    local choice
+    echo
+    echo -e " ${BLUE}[i]${NC}  FAKE_SNI selection:"
+    echo "   1) Free Tiktok  (api24-normal-alisg.tiktokv.com)"
+    echo "   2) Free Vina Ko Nen  (vnpt.theworkpc.com)"
+    echo "   3) Both (default)"
+    echo "   Or type a custom FAKE_SNI value"
+    read -r -p " Choose [1/2/3/custom]: " choice
+    case "$choice" in
+        1) FAKE_SNI="api24-normal-alisg.tiktokv.com#Free Tiktok" ;;
+        2) FAKE_SNI="vnpt.theworkpc.com#Free Vina Ko Nen" ;;
+        3|"") FAKE_SNI="$DEF_FAKE_SNI" ;;
+        *) FAKE_SNI="$choice" ;;
+    esac
+    ok "FAKE_SNI: $FAKE_SNI"
+}
+ask_port_mode(){
+    local choice
+    echo
+    echo -e " ${BLUE}[i]${NC}  Port selection for VLESS links:"
+    echo "   1) Port 80 only (NO TLS)"
+    echo "   2) Port 443 only (TLS)"
+    echo "   3) Both 80 + 443 (default)"
+    read -r -p " Choose [1/2/3]: " choice
+    case "$choice" in
+        1) PORT_MODE="80" ;;
+        2) PORT_MODE="443" ;;
+        3|"") PORT_MODE="both" ;;
+        *) PORT_MODE="both" ;;
+    esac
+    ok "Port mode: $PORT_MODE"
+}
 env_get(){ grep -E "^$1=" .env 2>/dev/null | head -n1 | cut -d= -f2-; }
 
 run_as_root(){
@@ -51,6 +90,22 @@ uuid_gen(){
     else
         cat /proc/sys/kernel/random/uuid 2>/dev/null
     fi
+}
+
+# ==================== Termux ====================
+termux_bootstrap(){
+    $IS_TERMUX || return 0
+    echo
+    echo -e " ${GREEN}========================================${NC}"
+    echo -e " ${GREEN}  Ban dang chay server tren Termux!${NC}"
+    echo -e " ${GREEN}========================================${NC}"
+    echo
+    info "Checking Termux packages..."
+    if ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+        info "Installing python & git..."
+        pkg install python git -y 2>&1 | tail -5
+    fi
+    ok "Termux packages ready."
 }
 
 # ==================== Python bootstrap ====================
@@ -148,6 +203,7 @@ write_env(){
         echo "WEBHOOK_URL=$WEBHOOK_URL"; echo "TUNNEL_TOKEN=$TUNNEL_TOKEN"
         echo "COUNTRY_CODE=$COUNTRY_CODE"
         echo "CUSTOM_DOMAIN=$CUSTOM_DOMAIN"
+        echo "PORT_MODE=$PORT_MODE"
     } > .env
     ok "Written .env (RUN_MODE=$RUN_MODE)"
 }
@@ -160,6 +216,7 @@ load_existing(){
     WEBHOOK_URL="$(env_get WEBHOOK_URL)"; TRANSPORT="$(env_get TRANSPORT)"
     COUNTRY_CODE="$(env_get COUNTRY_CODE)"
     CUSTOM_DOMAIN="$(env_get CUSTOM_DOMAIN)"
+    PORT_MODE="$(env_get PORT_MODE)"
 }
 
 # ==================== Systemd ====================
@@ -229,25 +286,39 @@ wait_and_show_links(){
     return 1
 }
 
+# ==================== Start server ====================
+start_server(){
+    rm -f "$SCRIPT_DIR/frp_info.config"
+    if $IS_TERMUX; then
+        prepare_python || return 1
+        echo
+        info "Starting server directly (Termux mode)..."
+        info "Press Ctrl+C to stop the server."
+        echo
+        "$PYBIN_ABS" "$SCRIPT_DIR/main.py"
+    else
+        install_service || return 1
+        wait_and_show_links
+    fi
+}
+
 # ==================== Setup modes ====================
 quick_mode(){
     header "1. Quick Tunnel (trycloudflare.com)"
     info "No domain required. Cloudflare gives a random hostname each run."
     load_existing
     UUID="$(ask_val "VLESS UUID" "${UUID:-$(uuid_gen)}")"
-    FAKE_SNI="$(ask_val "FAKE_SNI" "${FAKE_SNI:-$DEF_FAKE_SNI}")"
+    ask_fake_sni
     WS_PATH="$(ask_val "WebSocket path" "${WS_PATH:-$DEF_WS_PATH}")"
     RUN_MODE="quick_tunnel"; PORT="$DEF_PORT_QUICK"
     # Save custom domain before overwriting (so named/direct can reuse it)
     [ -n "$WS_HOST" ] && [ "$WS_HOST" != "$DEF_WS_HOST" ] && CUSTOM_DOMAIN="$WS_HOST"
     WS_HOST="$DEF_WS_HOST"
     TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_port_mode
     ask_country
     write_env
-    # Remove old links so we detect fresh ones
-    rm -f "$SCRIPT_DIR/frp_info.config"
-    install_service || return 1
-    wait_and_show_links
+    start_server
 }
 
 named_mode(){
@@ -266,14 +337,14 @@ named_mode(){
     [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Domain required."; return 1; }
     [ -z "$TUNNEL_TOKEN" ] && { err "Token required."; return 1; }
     RUN_MODE="named_tunnel"; PORT="$DEF_PORT_NAMED"
-    UUID="${UUID:-$(uuid_gen)}"; FAKE_SNI="${FAKE_SNI:-$DEF_FAKE_SNI}"
+    UUID="${UUID:-$(uuid_gen)}"
+    ask_fake_sni
     WS_PATH="${WS_PATH:-$DEF_WS_PATH}"; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_port_mode
     ask_country
     CUSTOM_DOMAIN="$WS_HOST"
     write_env
-    rm -f "$SCRIPT_DIR/frp_info.config"
-    install_service || return 1
-    wait_and_show_links
+    start_server
 }
 
 direct_mode(){
@@ -292,18 +363,23 @@ direct_mode(){
     PORT="$(ask_val "Origin listen address:port" "$DEF_PORT_DIRECT")"
     [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Domain required."; return 1; }
     RUN_MODE="direct"; UUID="${UUID:-$(uuid_gen)}"
-    FAKE_SNI="${FAKE_SNI:-$DEF_FAKE_SNI}"; WS_PATH="${WS_PATH:-$DEF_WS_PATH}"
+    ask_fake_sni
+    WS_PATH="${WS_PATH:-$DEF_WS_PATH}"
     TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_port_mode
     ask_country
     CUSTOM_DOMAIN="$WS_HOST"
     write_env
-    rm -f "$SCRIPT_DIR/frp_info.config"
-    install_service || return 1
-    wait_and_show_links
+    start_server
 }
 
 # ==================== Service manager ====================
 service_manager(){
+    if $IS_TERMUX; then
+        warn "Service Manager is not available on Termux."
+        info "On Termux, run a setup mode (1/2/3) to start the server directly."
+        return 1
+    fi
     if ! command -v systemctl >/dev/null 2>&1; then
         err "systemd not available."; return 1
     fi
@@ -368,8 +444,8 @@ uninstall_all(){
     info "Source files are NEVER touched."
     echo
     ask_yes_no "Proceed?" "n" || { info "Canceled."; return; }
-    # Service
-    if [ -f "$SERVICE_FILE" ]; then
+    # Service (skip on Termux)
+    if ! $IS_TERMUX && [ -f "$SERVICE_FILE" ]; then
         systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null && run_as_root systemctl stop "$SERVICE_NAME"
         run_as_root systemctl disable "$SERVICE_NAME" 2>/dev/null
         run_as_root rm -f "$SERVICE_FILE"
@@ -390,10 +466,12 @@ uninstall_all(){
 }
 
 # ==================== Main menu ====================
+termux_bootstrap
 while true; do
     header "Xray VLESS-WS Server"
+    $IS_TERMUX && echo -e "  ${GREEN}[Termux]${NC} Direct mode (no systemd)"
     # Show current status
-    if command -v systemctl >/dev/null 2>&1 && [ -f "$SERVICE_FILE" ]; then
+    if ! $IS_TERMUX && command -v systemctl >/dev/null 2>&1 && [ -f "$SERVICE_FILE" ]; then
         if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
             echo -e "  ${GREEN}● Service running${NC}  $(env_get RUN_MODE) → $(env_get WS_HOST)"
         else
