@@ -18,6 +18,8 @@ pkg install curl -y && bash <(curl -fsSL https://raw.githubusercontent.com/takes
 
 The install script clones the repo to `~/vless` and launches the interactive menu.
 
+Need one subscription URL for links from multiple VPS nodes? See [Multi-VPS subscription setup](MULTI_VPS_SUBSCRIPTION.md).
+
 Pick a mode:
 
 1. **Quick Tunnel** — fastest, no domain. Cloudflare assigns a random `*.trycloudflare.com` hostname on every start.

@@ -34,6 +34,9 @@ def main():
         "TUNNEL_TOKEN": "",
         "COUNTRY_CODE": "",
         "PORT_MODE": "both",
+        "SUBSCRIPTION_SYNC_URL": "",
+        "SUBSCRIPTION_SYNC_TOKEN": "",
+        "SUBSCRIPTION_NODE_ID": "",
         "RUN_MODE": "quick_tunnel"
     }
     START_TIME = int(time.time())
@@ -80,6 +83,9 @@ def main():
     RUN_MODE = get_os_env("RUN_MODE").strip().lower()
     COUNTRY_CODE = get_os_env("COUNTRY_CODE").strip().upper()
     PORT_MODE = get_os_env("PORT_MODE").strip().lower()
+    SUBSCRIPTION_SYNC_URL = get_os_env("SUBSCRIPTION_SYNC_URL").strip()
+    SUBSCRIPTION_SYNC_TOKEN = get_os_env("SUBSCRIPTION_SYNC_TOKEN").strip()
+    SUBSCRIPTION_NODE_ID = get_os_env("SUBSCRIPTION_NODE_ID").strip()
     if PORT_MODE not in ("80", "443", "both"):
         PORT_MODE = "both"
 
@@ -441,6 +447,22 @@ def main():
                 f.write("\n") if payloads.index(payload) < len(payloads)-1 else None
                 print(payload) if DEBUG_MODE else None
             print("Written to frp_info.config")
+
+        if SUBSCRIPTION_SYNC_URL:
+            if not SUBSCRIPTION_SYNC_TOKEN or not SUBSCRIPTION_NODE_ID:
+                print("[!] Subscription sync skipped: URL requires token and node ID.")
+            else:
+                try:
+                    response = requests.post(
+                        SUBSCRIPTION_SYNC_URL,
+                        json={"node_id": SUBSCRIPTION_NODE_ID, "payloads": payloads},
+                        headers={"Authorization": f"Bearer {SUBSCRIPTION_SYNC_TOKEN}"},
+                        timeout=15,
+                    )
+                    response.raise_for_status()
+                    print(f"[OK] Subscription synced: node {SUBSCRIPTION_NODE_ID}")
+                except requests.RequestException as error:
+                    print(f"[!] Subscription sync failed (server still running): {error}")
 
         frp_info = {
             "payloads": payloads,

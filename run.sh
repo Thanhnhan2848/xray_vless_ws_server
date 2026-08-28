@@ -21,7 +21,7 @@ DEF_WS_PATH="/tiktok4g"
 DEF_WS_HOST="trycloudflare.com"
 DEF_TRANSPORT="websocket"
 
-RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; COUNTRY_CODE=""; CUSTOM_DOMAIN=""; PORT_MODE=""
+RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; COUNTRY_CODE=""; CUSTOM_DOMAIN=""; PORT_MODE=""; SUBSCRIPTION_SYNC_URL=""; SUBSCRIPTION_SYNC_TOKEN=""; SUBSCRIPTION_NODE_ID=""
 
 header(){ echo; echo -e "${CYAN}===================================================${NC}"; echo -e "${GREEN} $1${NC}"; echo -e "${CYAN}===================================================${NC}"; }
 ok(){ echo -e " ${GREEN}[OK]${NC} $1"; }
@@ -76,6 +76,29 @@ ask_port_mode(){
     esac
     ok "Port mode: $PORT_MODE"
 }
+ask_subscription_sync(){
+    local enabled
+    echo
+    echo -e " ${BLUE}[i]${NC}  Multi-VPS subscription sync (optional)"
+    echo "      Enter keeps current value; type - to disable sync."
+    read -r -p " Hub sync URL [${SUBSCRIPTION_SYNC_URL:-}]: " enabled
+    if [ "$enabled" = "-" ]; then
+        SUBSCRIPTION_SYNC_URL=""
+        SUBSCRIPTION_SYNC_TOKEN=""
+        SUBSCRIPTION_NODE_ID=""
+        info "Subscription sync disabled for this VPS."
+    elif [ -n "$enabled" ] || [ -n "$SUBSCRIPTION_SYNC_URL" ]; then
+        [ -n "$enabled" ] && SUBSCRIPTION_SYNC_URL="$enabled"
+        SUBSCRIPTION_NODE_ID="$(ask_val "Node ID (unique: vps-jp-1)" "${SUBSCRIPTION_NODE_ID:-}")"
+        SUBSCRIPTION_SYNC_TOKEN="$(ask_val "Hub sync token" "${SUBSCRIPTION_SYNC_TOKEN:-}")"
+        [ -z "$SUBSCRIPTION_NODE_ID" ] && { err "Node ID is required when sync is enabled."; return 1; }
+        [ -z "$SUBSCRIPTION_SYNC_TOKEN" ] && { err "Hub token is required when sync is enabled."; return 1; }
+        ok "This VPS will sync as: $SUBSCRIPTION_NODE_ID"
+    else
+        info "Subscription sync disabled for this VPS."
+    fi
+}
+
 env_get(){ grep -E "^$1=" .env 2>/dev/null | head -n1 | cut -d= -f2-; }
 
 run_as_root(){
@@ -204,6 +227,7 @@ write_env(){
         echo "COUNTRY_CODE=$COUNTRY_CODE"
         echo "CUSTOM_DOMAIN=$CUSTOM_DOMAIN"
         echo "PORT_MODE=$PORT_MODE"
+        echo "SUBSCRIPTION_SYNC_URL=$SUBSCRIPTION_SYNC_URL"; echo "SUBSCRIPTION_SYNC_TOKEN=$SUBSCRIPTION_SYNC_TOKEN"; echo "SUBSCRIPTION_NODE_ID=$SUBSCRIPTION_NODE_ID"
     } > .env
     ok "Written .env (RUN_MODE=$RUN_MODE)"
 }
@@ -217,6 +241,7 @@ load_existing(){
     COUNTRY_CODE="$(env_get COUNTRY_CODE)"
     CUSTOM_DOMAIN="$(env_get CUSTOM_DOMAIN)"
     PORT_MODE="$(env_get PORT_MODE)"
+    SUBSCRIPTION_SYNC_URL="$(env_get SUBSCRIPTION_SYNC_URL)"; SUBSCRIPTION_SYNC_TOKEN="$(env_get SUBSCRIPTION_SYNC_TOKEN)"; SUBSCRIPTION_NODE_ID="$(env_get SUBSCRIPTION_NODE_ID)"
 }
 
 # ==================== Systemd ====================
@@ -316,6 +341,7 @@ quick_mode(){
     WS_HOST="$DEF_WS_HOST"
     TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_port_mode
+    ask_subscription_sync || return 1
     ask_country
     write_env
     start_server
@@ -341,6 +367,7 @@ named_mode(){
     ask_fake_sni
     WS_PATH="${WS_PATH:-$DEF_WS_PATH}"; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_port_mode
+    ask_subscription_sync || return 1
     ask_country
     CUSTOM_DOMAIN="$WS_HOST"
     write_env
@@ -367,6 +394,7 @@ direct_mode(){
     WS_PATH="${WS_PATH:-$DEF_WS_PATH}"
     TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_port_mode
+    ask_subscription_sync || return 1
     ask_country
     CUSTOM_DOMAIN="$WS_HOST"
     write_env
