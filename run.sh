@@ -15,7 +15,7 @@ DEF_WS_PATH="/tiktok4g"
 DEF_WS_HOST="trycloudflare.com"
 DEF_TRANSPORT="websocket"
 
-RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; COUNTRY_CODE=""
+RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; COUNTRY_CODE=""; CUSTOM_DOMAIN=""
 
 header(){ echo; echo -e "${CYAN}===================================================${NC}"; echo -e "${GREEN} $1${NC}"; echo -e "${CYAN}===================================================${NC}"; }
 ok(){ echo -e " ${GREEN}[OK]${NC} $1"; }
@@ -147,6 +147,7 @@ write_env(){
         echo "TRANSPORT=$TRANSPORT"; echo "ENABLE_WARP=$ENABLE_WARP"
         echo "WEBHOOK_URL=$WEBHOOK_URL"; echo "TUNNEL_TOKEN=$TUNNEL_TOKEN"
         echo "COUNTRY_CODE=$COUNTRY_CODE"
+        echo "CUSTOM_DOMAIN=$CUSTOM_DOMAIN"
     } > .env
     ok "Written .env (RUN_MODE=$RUN_MODE)"
 }
@@ -158,6 +159,7 @@ load_existing(){
     TUNNEL_TOKEN="$(env_get TUNNEL_TOKEN)"; ENABLE_WARP="$(env_get ENABLE_WARP)"
     WEBHOOK_URL="$(env_get WEBHOOK_URL)"; TRANSPORT="$(env_get TRANSPORT)"
     COUNTRY_CODE="$(env_get COUNTRY_CODE)"
+    CUSTOM_DOMAIN="$(env_get CUSTOM_DOMAIN)"
 }
 
 # ==================== Systemd ====================
@@ -235,8 +237,11 @@ quick_mode(){
     UUID="$(ask_val "VLESS UUID" "${UUID:-$(uuid_gen)}")"
     FAKE_SNI="$(ask_val "FAKE_SNI" "${FAKE_SNI:-$DEF_FAKE_SNI}")"
     WS_PATH="$(ask_val "WebSocket path" "${WS_PATH:-$DEF_WS_PATH}")"
-    RUN_MODE="quick_tunnel"; PORT="$DEF_PORT_QUICK"; WS_HOST="$DEF_WS_HOST"
-    TUNNEL_TOKEN=""; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    RUN_MODE="quick_tunnel"; PORT="$DEF_PORT_QUICK"
+    # Save custom domain before overwriting (so named/direct can reuse it)
+    [ -n "$WS_HOST" ] && [ "$WS_HOST" != "$DEF_WS_HOST" ] && CUSTOM_DOMAIN="$WS_HOST"
+    WS_HOST="$DEF_WS_HOST"
+    TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_country
     write_env
     # Remove old links so we detect fresh ones
@@ -254,7 +259,8 @@ named_mode(){
     echo
     read -r -p " Press Enter when ready..." _
     load_existing
-    local def_host="${WS_HOST:-}"; [ "$def_host" = "trycloudflare.com" ] && def_host=""
+    local def_host="${WS_HOST:-}"
+    [ "$def_host" = "trycloudflare.com" ] || [ -z "$def_host" ] && def_host="${CUSTOM_DOMAIN:-}"
     WS_HOST="$(ask_val "Domain (e.g. vless.example.com)" "$def_host")"
     TUNNEL_TOKEN="$(ask_val "Tunnel connector token" "${TUNNEL_TOKEN:-}")"
     [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Domain required."; return 1; }
@@ -263,6 +269,7 @@ named_mode(){
     UUID="${UUID:-$(uuid_gen)}"; FAKE_SNI="${FAKE_SNI:-$DEF_FAKE_SNI}"
     WS_PATH="${WS_PATH:-$DEF_WS_PATH}"; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_country
+    CUSTOM_DOMAIN="$WS_HOST"
     write_env
     rm -f "$SCRIPT_DIR/frp_info.config"
     install_service || return 1
@@ -279,14 +286,16 @@ direct_mode(){
     echo
     read -r -p " Press Enter when ready..." _
     load_existing
-    local def_host="${WS_HOST:-}"; [ "$def_host" = "trycloudflare.com" ] && def_host=""
+    local def_host="${WS_HOST:-}"
+    [ "$def_host" = "trycloudflare.com" ] || [ -z "$def_host" ] && def_host="${CUSTOM_DOMAIN:-}"
     WS_HOST="$(ask_val "Domain" "$def_host")"
     PORT="$(ask_val "Origin listen address:port" "$DEF_PORT_DIRECT")"
     [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Domain required."; return 1; }
     RUN_MODE="direct"; UUID="${UUID:-$(uuid_gen)}"
     FAKE_SNI="${FAKE_SNI:-$DEF_FAKE_SNI}"; WS_PATH="${WS_PATH:-$DEF_WS_PATH}"
-    TUNNEL_TOKEN=""; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_country
+    CUSTOM_DOMAIN="$WS_HOST"
     write_env
     rm -f "$SCRIPT_DIR/frp_info.config"
     install_service || return 1
