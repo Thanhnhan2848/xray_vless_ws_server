@@ -33,7 +33,6 @@ write_hub_env(){
     {
         printf 'HUB_TOKEN=%s\n' "$HUB_TOKEN"
         printf 'SUBSCRIPTION_DOMAIN=%s\n' "$SUBSCRIPTION_DOMAIN"
-        printf 'NGINX_SITE=%s\n' "$NGINX_SITE"
         printf 'PYTHON_BIN=%s\n' "$PYTHON_BIN"
     } > "$HUB_ENV"
     chmod 600 "$HUB_ENV"
