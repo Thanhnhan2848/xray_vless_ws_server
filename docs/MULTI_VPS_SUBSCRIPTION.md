@@ -1,5 +1,8 @@
 # One Subscription for Multiple VPS Servers
 
+> [!TIP]
+> The easiest central-server setup is now `sudo bash hub.sh`. It creates the hub service and safely adds the nginx locations automatically.
+
 This project can push every node's current VLESS links into one central **subscription hub**. The hub combines them into one `merged.config` file, which nginx exposes through your existing subscription domain.
 
 ## Architecture
@@ -13,7 +16,23 @@ Termux node ──POST /sync─┘          │
 
 Each node sends its latest list when its tunnel is ready. This is important for Quick Tunnel because its `trycloudflare.com` hostname changes after a restart.
 
-## 1. Set up the central VPS
+## Quick setup (recommended)
+
+On the VPS hosting your subscription domain:
+
+```bash
+cd /root/vless
+git pull
+sudo bash hub.sh
+```
+
+Choose **1. Setup / update hub**, then enter your subscription domain. The script generates or stores the shared secret, installs the systemd service, tests nginx, and adds `/sync` plus the merged `/frp_info.config` route automatically. It creates an nginx backup before modifying the selected site.
+
+Use the hub menu later to start, stop, restart, view logs/status, or uninstall it.
+
+## Manual setup (advanced)
+
+### 1. Set up the central VPS
 
 Run these commands in the project directory on the VPS that already owns your subscription domain. Replace `CHANGE_THIS_TO_A_LONG_RANDOM_SECRET` with a private token of **at least 24 characters**.
 
@@ -87,7 +106,7 @@ https://vless5gtiktok.takeshi.dev/frp_info.config
 On every VPS (or Termux node) that should contribute links, run `bash run.sh`, choose any mode, then fill the new optional prompts:
 
 ```text
-Hub sync URL: https://vless5gtiktok.takeshi.dev/sync
+Subscription URL: https://vless5gtiktok.takeshi.dev
 Node ID: vps-jp-1
 Hub sync token: CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 ```

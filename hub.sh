@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+# VLESS Subscription Hub manager. Run on the VPS hosting the subscription domain.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_NAME="vless-subscription-hub"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+HUB_ENV="$SCRIPT_DIR/.hub.env"
+HUB_FILE="$SCRIPT_DIR/subscription_hub.py"
+DEFAULT_PORT="9998"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
+header(){ echo; echo -e "${CYAN}===================================================${NC}"; echo -e "${GREEN} $1${NC}"; echo -e "${CYAN}===================================================${NC}"; }
+ok(){ echo -e " ${GREEN}[OK]${NC} $1"; }
+warn(){ echo -e " ${YELLOW}[!]${NC}  $1"; }
+err(){ echo -e " ${RED}[ERR]${NC} $1"; }
+info(){ echo -e " ${BLUE}[i]${NC}  $1"; }
+
+need_root(){
+    if [ "$(id -u)" != "0" ]; then
+        err "Run this script as root: sudo bash hub.sh"
+        exit 1
+    fi
+}
+
+value_from_env(){
+    [ -f "$HUB_ENV" ] || return 0
+    awk -F= -v k="$1" '$1 == k {sub(/^[^=]*=/, ""); print; exit}' "$HUB_ENV"
+}
+
+write_hub_env(){
+    umask 077
+    {
+        printf 'HUB_TOKEN=%s\n' "$HUB_TOKEN"
+        printf 'SUBSCRIPTION_DOMAIN=%s\n' "$SUBSCRIPTION_DOMAIN"
+        printf 'NGINX_SITE=%s\n' "$NGINX_SITE"
+        printf 'PYTHON_BIN=%s\n' "$PYTHON_BIN"
+    } > "$HUB_ENV"
+    chmod 600 "$HUB_ENV"
+}
+
+nginx_block(){
+    cat <<EOF
+    # Managed by vless hub.sh. VPS nodes push their latest links here.
+    location = /sync {
+        proxy_pass http://127.0.0.1:${DEFAULT_PORT}/sync;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        client_max_body_size 512k;
+    }
+
+    # Single subscription containing links from all synced VPS nodes.
+    location = /frp_info.config {
+        alias ${SCRIPT_DIR}/merged.config;
+        default_type text/plain;
+        add_header Cache-Control "no-store";
+    }
+    # End managed by vless hub.sh
+EOF
+}
+
+install_nginx_locations(){
+    local backup tmp block
+    [ -f "$NGINX_SITE" ] || { err "nginx site not found: $NGINX_SITE"; return 1; }
+    if grep -q 'Managed by vless hub.sh' "$NGINX_SITE"; then
+        ok "Hub nginx locations already installed."
+        return 0
+    fi
+    backup="${NGINX_SITE}.before-hub.$(date +%Y%m%d%H%M%S)"
+    cp "$NGINX_SITE" "$backup"
+    block="$(nginx_block)"
+    tmp="$(mktemp)"
+    # Put both exact-match locations immediately after the first server opening.
+    awk -v block="$block" '
+        !done && /^[[:space:]]*server[[:space:]]*\{/ { print; print block; done=1; next }
+        { print }
+    ' "$NGINX_SITE" > "$tmp"
+    mv "$tmp" "$NGINX_SITE"
+    if nginx -t; then
+        systemctl reload nginx
+        ok "nginx updated (backup: $backup)"
+    else
+        mv "$backup" "$NGINX_SITE"
+        err "nginx test failed; restored previous config."
+        return 1
+    fi
+}
+
+install_service(){
+    cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=VLESS multi-VPS subscription hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=${SCRIPT_DIR}
+ExecStart=${PYTHON_BIN} ${HUB_FILE} --token '${HUB_TOKEN}' --output ${SCRIPT_DIR}/merged.config --data-dir ${SCRIPT_DIR}/subscription_nodes --bind 127.0.0.1 --port ${DEFAULT_PORT}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now "$SERVICE_NAME"
+}
+
+setup_hub(){
+    need_root
+    [ -f "$HUB_FILE" ] || { err "Missing $HUB_FILE. Run git pull first."; return 1; }
+    command -v nginx >/dev/null 2>&1 || { err "nginx is required."; return 1; }
+    PYTHON_BIN="$(command -v python3 || true)"
+    [ -n "$PYTHON_BIN" ] || { err "python3 is required."; return 1; }
+
+    header "Setup Subscription Hub"
+    local default_domain default_site token domain site
+    default_domain="$(value_from_env SUBSCRIPTION_DOMAIN)"
+    default_domain="${default_domain:-}"
+    read -r -p " Subscription domain (e.g. vless5gtiktok.example.com) [$default_domain]: " domain
+    SUBSCRIPTION_DOMAIN="${domain:-$default_domain}"
+    [ -n "$SUBSCRIPTION_DOMAIN" ] || { err "Subscription domain is required."; return 1; }
+    default_site="$(value_from_env NGINX_SITE)"
+    default_site="${default_site:-/etc/nginx/sites-available/${SUBSCRIPTION_DOMAIN%%/*}}"
+    read -r -p " nginx site file [$default_site]: " site
+    NGINX_SITE="${site:-$default_site}"
+
+    token="$(value_from_env HUB_TOKEN)"
+    if [ -n "$token" ]; then
+        read -r -p " Keep existing hub token? [Y/n]: " token_answer
+        if [[ "$token_answer" =~ ^[Nn]$ ]]; then token=""; fi
+    fi
+    if [ -z "$token" ]; then
+        read -r -p " Hub token (leave blank to generate): " token
+        token="${token:-$(openssl rand -hex 32)}"
+    fi
+    [ "${#token}" -ge 24 ] || { err "Token must be at least 24 characters."; return 1; }
+    HUB_TOKEN="$token"
+
+    write_hub_env
+    install_nginx_locations
+    install_service
+    sleep 1
+    status_hub
+    echo
+    ok "Setup complete. Configure each node with this subscription URL:"
+    echo "    https://${SUBSCRIPTION_DOMAIN}"
+    echo "    Node ID: a unique name, e.g. vps-jp-1"
+    echo "    Hub token: $HUB_TOKEN"
+}
+
+start_hub(){ need_root; systemctl start "$SERVICE_NAME"; systemctl is-active --quiet "$SERVICE_NAME" && ok "Hub started."; }
+stop_hub(){ need_root; systemctl stop "$SERVICE_NAME"; ok "Hub stopped."; }
+restart_hub(){ need_root; systemctl restart "$SERVICE_NAME"; systemctl is-active --quiet "$SERVICE_NAME" && ok "Hub restarted."; }
+status_hub(){
+    need_root
+    header "Hub Status"
+    systemctl status "$SERVICE_NAME" --no-pager || true
+    echo
+    if curl -fsS "http://127.0.0.1:${DEFAULT_PORT}/health" >/dev/null; then ok "Health endpoint: OK"; else warn "Health endpoint unavailable."; fi
+    [ -f "$SCRIPT_DIR/merged.config" ] && { info "Merged links: $(awk 'NF {count++} END {print count+0}' "$SCRIPT_DIR/merged.config")"; } || warn "merged.config does not exist yet. Sync a node first."
+}
+logs_hub(){ need_root; journalctl -u "$SERVICE_NAME" -n 100 --no-pager; }
+
+uninstall_hub(){
+    need_root
+    header "Uninstall Subscription Hub"
+    read -r -p " Stop/remove hub service and its nginx locations? [y/N]: " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || { info "Cancelled."; return 0; }
+    systemctl disable --now "$SERVICE_NAME" 2>/dev/null || true
+    rm -f "$SERVICE_FILE"
+    systemctl daemon-reload
+    if [ -f "$HUB_ENV" ]; then
+        NGINX_SITE="$(value_from_env NGINX_SITE)"
+        if [ -n "$NGINX_SITE" ] && [ -f "$NGINX_SITE" ]; then
+            tmp="$(mktemp)"
+            awk '
+                /# Managed by vless hub\.sh/ { skip=1; next }
+                /# End managed by vless hub\.sh/ { skip=0; next }
+                !skip { print }
+            ' "$NGINX_SITE" > "$tmp"
+            mv "$tmp" "$NGINX_SITE"
+            nginx -t && systemctl reload nginx || warn "Check nginx config manually."
+        fi
+    fi
+    rm -f "$HUB_ENV"
+    ok "Hub service removed. Node files and merged.config were kept."
+}
+
+menu(){
+    while true; do
+        header "VLESS Subscription Hub Manager"
+        if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then echo -e "  ${GREEN}● Hub running${NC}"; else echo -e "  ${RED}● Hub stopped${NC}"; fi
+        echo
+        echo " 1. Setup / update hub"
+        echo " 2. Start hub"
+        echo " 3. Stop hub"
+        echo " 4. Restart hub"
+        echo " 5. Status and health"
+        echo " 6. View logs"
+        echo " 7. Uninstall hub"
+        echo " 0. Exit"
+        echo
+        read -r -p " Choice [0-7]: " choice
+        case "$choice" in
+            1) setup_hub ;;
+            2) start_hub ;;
+            3) stop_hub ;;
+            4) restart_hub ;;
+            5) status_hub ;;
+            6) logs_hub ;;
+            7) uninstall_hub ;;
+            0) exit 0 ;;
+            *) warn "Invalid choice." ;;
+        esac
+        read -r -p " Press Enter to continue..." _
+    done
+}
+
+menu

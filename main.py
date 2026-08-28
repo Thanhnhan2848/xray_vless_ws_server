@@ -86,6 +86,12 @@ def main():
     SUBSCRIPTION_SYNC_URL = get_os_env("SUBSCRIPTION_SYNC_URL").strip()
     SUBSCRIPTION_SYNC_TOKEN = get_os_env("SUBSCRIPTION_SYNC_TOKEN").strip()
     SUBSCRIPTION_NODE_ID = get_os_env("SUBSCRIPTION_NODE_ID").strip()
+    if SUBSCRIPTION_SYNC_URL:
+        SUBSCRIPTION_SYNC_URL = SUBSCRIPTION_SYNC_URL.rstrip("/")
+        for suffix in ("/frp_info.config", "/sync"):
+            if SUBSCRIPTION_SYNC_URL.endswith(suffix):
+                SUBSCRIPTION_SYNC_URL = SUBSCRIPTION_SYNC_URL[:-len(suffix)]
+        SUBSCRIPTION_SYNC_URL = f"{SUBSCRIPTION_SYNC_URL}/sync"
     if PORT_MODE not in ("80", "443", "both"):
         PORT_MODE = "both"
 

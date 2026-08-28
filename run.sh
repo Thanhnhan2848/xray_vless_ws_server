@@ -76,23 +76,43 @@ ask_port_mode(){
     esac
     ok "Port mode: $PORT_MODE"
 }
+normalize_hub_url(){
+    local value="$1"
+    value="${value%/}"
+    value="${value%/frp_info.config}"
+    value="${value%/sync}"
+    case "$value" in
+        http://*|https://*) ;;
+        *) value="https://$value" ;;
+    esac
+    printf '%s/sync' "$value"
+}
+
 ask_subscription_sync(){
-    local enabled
+    local subscription_url endpoint
     echo
     echo -e " ${BLUE}[i]${NC}  Multi-VPS subscription sync (optional)"
     echo "      Enter keeps current value; type - to disable sync."
-    read -r -p " Hub sync URL [${SUBSCRIPTION_SYNC_URL:-}]: " enabled
-    if [ "$enabled" = "-" ]; then
+    echo "      Example: https://vless5gtiktok.takeshi.dev"
+    read -r -p " Subscription URL [${SUBSCRIPTION_SYNC_URL%/sync}]: " subscription_url
+    if [ "$subscription_url" = "-" ]; then
         SUBSCRIPTION_SYNC_URL=""
         SUBSCRIPTION_SYNC_TOKEN=""
         SUBSCRIPTION_NODE_ID=""
         info "Subscription sync disabled for this VPS."
-    elif [ -n "$enabled" ] || [ -n "$SUBSCRIPTION_SYNC_URL" ]; then
-        [ -n "$enabled" ] && SUBSCRIPTION_SYNC_URL="$enabled"
+    elif [ -n "$subscription_url" ] || [ -n "$SUBSCRIPTION_SYNC_URL" ]; then
+        if [ -n "$subscription_url" ]; then
+            endpoint="$(normalize_hub_url "$subscription_url")"
+            case "$endpoint" in
+                https://*/sync|http://*/sync) SUBSCRIPTION_SYNC_URL="$endpoint" ;;
+                *) err "Invalid subscription URL."; return 1 ;;
+            esac
+        fi
         SUBSCRIPTION_NODE_ID="$(ask_val "Node ID (unique: vps-jp-1)" "${SUBSCRIPTION_NODE_ID:-}")"
         SUBSCRIPTION_SYNC_TOKEN="$(ask_val "Hub sync token" "${SUBSCRIPTION_SYNC_TOKEN:-}")"
         [ -z "$SUBSCRIPTION_NODE_ID" ] && { err "Node ID is required when sync is enabled."; return 1; }
         [ -z "$SUBSCRIPTION_SYNC_TOKEN" ] && { err "Hub token is required when sync is enabled."; return 1; }
+        ok "Subscription: ${SUBSCRIPTION_SYNC_URL%/sync}"
         ok "This VPS will sync as: $SUBSCRIPTION_NODE_ID"
     else
         info "Subscription sync disabled for this VPS."
