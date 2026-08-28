@@ -81,6 +81,18 @@ server {
 EOF
 }
 
+remove_broken_nginx_links(){
+    local link target
+    for link in /etc/nginx/sites-enabled/*; do
+        [ -L "$link" ] || continue
+        target="$(readlink -f "$link" 2>/dev/null || true)"
+        if [ -z "$target" ] || [ ! -e "$target" ]; then
+            warn "Removing broken nginx symlink: $link"
+            rm -f "$link"
+        fi
+    done
+}
+
 create_nginx_site(){
     local certificate_dir backup tmp
     NGINX_SITE="/etc/nginx/sites-available/vless-subscription-hub"
@@ -95,6 +107,7 @@ create_nginx_site(){
         cp "$NGINX_SITE" "$backup"
         info "Existing hub site backed up: $backup"
     fi
+    remove_broken_nginx_links
     tmp="$(mktemp)"
     nginx_config > "$tmp"
     mv "$tmp" "$NGINX_SITE"
