@@ -34,6 +34,7 @@ write_hub_env(){
         printf 'HUB_TOKEN=%s\n' "$HUB_TOKEN"
         printf 'SUBSCRIPTION_DOMAIN=%s\n' "$SUBSCRIPTION_DOMAIN"
         printf 'PYTHON_BIN=%s\n' "$PYTHON_BIN"
+        printf 'MAX_AGE_HOURS=%s\n' "$MAX_AGE_HOURS"
     } > "$HUB_ENV"
     chmod 600 "$HUB_ENV"
 }
@@ -131,7 +132,7 @@ Wants=network-online.target
 
 [Service]
 WorkingDirectory=${SCRIPT_DIR}
-ExecStart=${PYTHON_BIN} -u ${HUB_FILE} --token '${HUB_TOKEN}' --output ${SCRIPT_DIR}/merged.config --data-dir ${SCRIPT_DIR}/subscription_nodes --bind 127.0.0.1 --port ${DEFAULT_PORT}
+ExecStart=${PYTHON_BIN} -u ${HUB_FILE} --token '${HUB_TOKEN}' --output ${SCRIPT_DIR}/merged.config --data-dir ${SCRIPT_DIR}/subscription_nodes --bind 127.0.0.1 --port ${DEFAULT_PORT} --max-age-hours ${MAX_AGE_HOURS:-0}
 Restart=always
 RestartSec=5
 
@@ -197,6 +198,80 @@ status_hub(){
 }
 logs_hub(){ need_root; journalctl -u "$SERVICE_NAME" -n 100 --no-pager; }
 
+request_hub(){
+    local method="$1" path="$2"
+    local token
+    token="$(value_from_env HUB_TOKEN)"
+    [ -n "$token" ] || { err "Hub token is missing. Run Setup first."; return 1; }
+    curl -fsS -X "$method" -H "Authorization: Bearer $token" "http://127.0.0.1:${DEFAULT_PORT}${path}"
+}
+
+list_nodes(){
+    need_root
+    header "Synced VPS Nodes"
+    systemctl is-active --quiet "$SERVICE_NAME" || { err "Hub is not running."; return 1; }
+    local response_file
+    response_file="$(mktemp)"
+    if ! request_hub GET "/nodes" > "$response_file"; then
+        rm -f "$response_file"
+        err "Could not query the hub."
+        return 1
+    fi
+    python3 - "$response_file" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+nodes = payload.get("nodes", [])
+if not nodes:
+    print("No synced nodes yet.")
+else:
+    print(f"{'NODE ID':<28} {'LINKS':>5}  LAST SYNC (UTC)")
+    print("-" * 62)
+    for node in nodes:
+        updated = datetime.fromtimestamp(node["updated_at"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{node['node_id']:<28} {node['links']:>5}  {updated}")
+print(f"\nTotal merged links: {payload.get('total_links', 0)}")
+expired = payload.get("expired", [])
+if expired:
+    print("Expired nodes removed: " + ", ".join(expired))
+PY
+    rm -f "$response_file"
+}
+remove_node(){
+    need_root
+    header "Remove a Synced VPS Node"
+    systemctl is-active --quiet "$SERVICE_NAME" || { err "Hub is not running."; return 1; }
+    local node_id answer result
+    read -r -p " Node ID to remove: " node_id
+    [[ "$node_id" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || { err "Invalid node ID."; return 1; }
+    read -r -p " Permanently remove '$node_id' from the shared subscription? [y/N]: " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || { info "Cancelled."; return 0; }
+    result="$(request_hub DELETE "/nodes/$node_id")" || { err "Node was not removed. Check the node ID."; return 1; }
+    ok "Node removed and subscription rebuilt."
+    echo "$result"
+}
+
+configure_expiry(){
+    need_root
+    header "Configure Stale Node Expiry"
+    local current answer
+    current="$(value_from_env MAX_AGE_HOURS)"
+    current="${current:-0}"
+    echo " Current setting: $current hours (0 = disabled)"
+    read -r -p " Remove nodes that have not synced for how many hours? [0]: " answer
+    answer="${answer:-0}"
+    [[ "$answer" =~ ^[0-9]+$ ]] || { err "Enter 0 or a whole number of hours."; return 1; }
+    MAX_AGE_HOURS="$answer"
+    HUB_TOKEN="$(value_from_env HUB_TOKEN)"
+    SUBSCRIPTION_DOMAIN="$(value_from_env SUBSCRIPTION_DOMAIN)"
+    PYTHON_BIN="$(value_from_env PYTHON_BIN)"
+    PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
+    write_hub_env
+    install_service
+    if [ "$MAX_AGE_HOURS" = "0" ]; then ok "Automatic stale-node expiry disabled."; else ok "Nodes expire after $MAX_AGE_HOURS hours without a sync."; fi
+}
 uninstall_hub(){
     need_root
     header "Uninstall Subscription Hub"
@@ -223,10 +298,13 @@ menu(){
         echo " 4. Restart hub"
         echo " 5. Status and health"
         echo " 6. View logs"
-        echo " 7. Uninstall hub"
+        echo " 7. List synced VPS nodes"
+        echo " 8. Remove a VPS node"
+        echo " 9. Configure stale-node expiry"
+        echo "10. Uninstall hub"
         echo " 0. Exit"
         echo
-        read -r -p " Choice [0-7]: " choice
+        read -r -p " Choice [0-10]: " choice
         case "$choice" in
             1) setup_hub ;;
             2) start_hub ;;
@@ -234,7 +312,10 @@ menu(){
             4) restart_hub ;;
             5) status_hub ;;
             6) logs_hub ;;
-            7) uninstall_hub ;;
+            7) list_nodes ;;
+            8) remove_node ;;
+            9) configure_expiry ;;
+            10) uninstall_hub ;;
             0) exit 0 ;;
             *) warn "Invalid choice." ;;
         esac
