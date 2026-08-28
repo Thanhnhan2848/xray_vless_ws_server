@@ -30,6 +30,8 @@ def atomic_write(path: Path, content: str) -> None:
         handle.write(content)
         temp_name = handle.name
     os.replace(temp_name, path)
+    # nginx workers must be able to read generated subscription files.
+    os.chmod(path, 0o644)
 
 
 def normalise_links(payloads: object) -> list[str]:

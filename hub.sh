@@ -131,7 +131,7 @@ Wants=network-online.target
 
 [Service]
 WorkingDirectory=${SCRIPT_DIR}
-ExecStart=${PYTHON_BIN} ${HUB_FILE} --token '${HUB_TOKEN}' --output ${SCRIPT_DIR}/merged.config --data-dir ${SCRIPT_DIR}/subscription_nodes --bind 127.0.0.1 --port ${DEFAULT_PORT}
+ExecStart=${PYTHON_BIN} -u ${HUB_FILE} --token '${HUB_TOKEN}' --output ${SCRIPT_DIR}/merged.config --data-dir ${SCRIPT_DIR}/subscription_nodes --bind 127.0.0.1 --port ${DEFAULT_PORT}
 Restart=always
 RestartSec=5
 
