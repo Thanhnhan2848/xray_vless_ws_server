@@ -6,12 +6,17 @@ An educational Python proof-of-concept that runs an **Xray-Core** VLESS-WebSocke
 
 ## Quick start
 
+### Linux / VPS / WSL
 ```bash
-git clone https://github.com/takeshi7502/xray_vless_ws_server
-cd xray_vless_ws_server
-pip install -r requirements.txt
-bash run.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/takeshi7502/xray_vless_ws_server/main/install.sh)
 ```
+
+### Termux (Android)
+```bash
+pkg install curl -y && bash <(curl -fsSL https://raw.githubusercontent.com/takeshi7502/xray_vless_ws_server/main/install.sh)
+```
+
+The install script clones the repo to `~/vless` and launches the interactive menu.
 
 Pick a mode:
 
@@ -70,13 +75,15 @@ No `cloudflared` is downloaded or run. Cloudflare's edge terminates TLS and forw
 RUN_MODE=quick_tunnel
 PORT=127.0.0.1:8888
 XRAY_UUID=
-FAKE_SNI=api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com
+FAKE_SNI=api24-normal-alisg.tiktokv.com#Free Tiktok,vnpt.theworkpc.com#Free Vina Ko Nen
 WS_PATH=/tiktok4g
 WS_HOST=trycloudflare.com
 TRANSPORT=websocket
 ENABLE_WARP=false
 WEBHOOK_URL=
 TUNNEL_TOKEN=
+COUNTRY_CODE=
+PORT_MODE=both
 ```
 
 | Key | Meaning |
@@ -84,17 +91,19 @@ TUNNEL_TOKEN=
 | `RUN_MODE` | `quick_tunnel`, `named_tunnel`, or `direct` |
 | `PORT` | Comma-separated Xray inbound listen addresses/ports |
 | `XRAY_UUID` | VLESS client UUID (auto-generated if blank) |
-| `FAKE_SNI` | Comma-separated list of zero-rated domains used for DNS/IP resolution |
+| `FAKE_SNI` | Comma-separated list of domains with optional `#remark` for link naming |
 | `WS_PATH` | WebSocket path |
 | `WS_HOST` | Custom domain for Named/Direct, or `trycloudflare.com` for Quick |
 | `TRANSPORT` | `websocket` (currently the only supported value) |
 | `ENABLE_WARP` | `true` to route outbound through Cloudflare WARP |
 | `WEBHOOK_URL` | Optional endpoint to receive connection payloads |
 | `TUNNEL_TOKEN` | Connector token for Named Tunnel mode only |
+| `COUNTRY_CODE` | Optional 2-letter country code (e.g. `VN`, `JP`) for flag prefix in link names |
+| `PORT_MODE` | Link output filter: `both` (default), `80` only, or `443` only |
 
 ## Running on a VPS
 
-Use `python3 main.py` directly if you do not want the interactive menu, or `bash run.sh` for the guided flow. The origin never terminates TLS itself; Cloudflare handles TLS on port 443.
+Use the one-liner install above, or run `bash run.sh` for the guided interactive menu. The origin never terminates TLS itself; Cloudflare handles TLS on port 443.
 
 ## Disclaimer
 

@@ -6,12 +6,17 @@ Một proof-of-concept Python mang tính giáo dục, chạy máy chủ **Xray-C
 
 ## Bắt đầu nhanh
 
+### Linux / VPS / WSL
 ```bash
-git clone https://github.com/takeshi7502/xray_vless_ws_server
-cd xray_vless_ws_server
-pip install -r requirements.txt
-bash run.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/takeshi7502/xray_vless_ws_server/main/install.sh)
 ```
+
+### Termux (Android)
+```bash
+pkg install curl -y && bash <(curl -fsSL https://raw.githubusercontent.com/takeshi7502/xray_vless_ws_server/main/install.sh)
+```
+
+Script sẽ tự clone repo vào `~/vless` và mở menu cài đặt.
 
 Chọn một chế độ:
 
@@ -70,13 +75,15 @@ Không tải hay chạy `cloudflared`. Cloudflare edge kết thúc TLS và chuy�
 RUN_MODE=quick_tunnel
 PORT=127.0.0.1:8888
 XRAY_UUID=
-FAKE_SNI=api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com
+FAKE_SNI=api24-normal-alisg.tiktokv.com#Free Tiktok,vnpt.theworkpc.com#Free Vina Ko Nen
 WS_PATH=/tiktok4g
 WS_HOST=trycloudflare.com
 TRANSPORT=websocket
 ENABLE_WARP=false
 WEBHOOK_URL=
 TUNNEL_TOKEN=
+COUNTRY_CODE=
+PORT_MODE=both
 ```
 
 | Khóa | Ý nghĩa |
@@ -84,17 +91,19 @@ TUNNEL_TOKEN=
 | `RUN_MODE` | `quick_tunnel`, `named_tunnel`, hoặc `direct` |
 | `PORT` | Danh sách địa chỉ/cổng inbound của Xray, cách nhau bằng dấu phẩy |
 | `XRAY_UUID` | UUID xác thực client VLESS (tự sinh nếu để trống) |
-| `FAKE_SNI` | Danh sách domain zero-rated dùng để phân giải DNS/IP, cách nhau bằng dấu phẩy |
+| `FAKE_SNI` | Danh sách domain kèm `#tên` tùy chọn để đặt tên link |
 | `WS_PATH` | Đường dẫn WebSocket |
 | `WS_HOST` | Domain riêng cho Named/Direct, hoặc `trycloudflare.com` cho Quick |
 | `TRANSPORT` | `websocket` (hiện là giá trị duy nhất được hỗ trợ) |
 | `ENABLE_WARP` | `true` để định tuyến outbound qua Cloudflare WARP |
 | `WEBHOOK_URL` | Endpoint tùy chọn để nhận payload kết nối |
 | `TUNNEL_TOKEN` | Connector token chỉ dùng cho chế độ Named Tunnel |
+| `COUNTRY_CODE` | Mã quốc gia 2 ký tự (VD: `VN`, `JP`) để thêm cờ vào tên link |
+| `PORT_MODE` | Lọc link xuất ra: `both` (mặc định), chỉ `80`, hoặc chỉ `443` |
 
 ## Chạy trên VPS
 
-Dùng trực tiếp `python3 main.py` nếu không muốn dùng menu tương tác, hoặc `bash run.sh` cho luồng có hướng dẫn. Origin không tự kết thúc TLS; Cloudflare xử lý TLS trên cổng 443.
+Dùng lệnh cài một dòng ở trên, hoặc chạy `bash run.sh` cho menu tương tác. Origin không tự kết thúc TLS; Cloudflare xử lý TLS trên cổng 443.
 
 ## Lưu ý
 
