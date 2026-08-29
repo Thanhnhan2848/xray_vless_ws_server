@@ -1,10 +1,10 @@
 # Xray VLESS-WS Bypass Protocol: Anycast IP-Range Piggybacking (Proof of Concept)
 
-[Xem phiên bản Tiếng Việt](https://vincentng295.github.io/xray_vless_ws_server/README_vi)
+[Xem phiên bản Tiếng Việt](README_vi.md)
 
 An automated, educational Python-based Proof of Concept (PoC) demonstrating how to leverage **Xray-Core** and **Cloudflare Tunnels** (both dynamic `trycloudflare.com` and custom domains) to establish a secure VLESS-WebSocket proxy. This repository serves as a localized staging environment to validate Layer 7 deep-packet inspection (DPI) bypasses over zero-rated carrier networks (e.g., TikTok bundles) before committing to production infrastructure.
 
-The idea of this project came from here: [The Anatomy of a Loophole: A Tech-Enthusiast's Journey into Layer-7 Decoupling](https://vincentng295.github.io/xray_vless_ws_server/IDEAS)
+The idea of this project came from here: [The Anatomy of a Loophole: A Tech-Enthusiast's Journey into Layer-7 Decoupling](IDEAS.md)
 
 ---
 

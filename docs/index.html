@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xray VLESS-WS Bypass Protocol — Anycast IP-Range Piggybacking</title>
+<style>
+:root {
+    --md-primary: #D0BCFF;
+    --md-on-primary: #381E72;
+    --md-primary-container: #4F378B;
+    --md-on-primary-container: #EADDFF;
+
+    --md-error: #F2B8B5;
+    --md-error-container: #8C1D18;
+
+    --md-success: #6DD58C;
+    --md-warning: #FFD782;
+
+    --md-surface: #141218;
+    --md-surface-1: #1e1b23;
+    --md-surface-2: #232029;
+    --md-surface-3: #28262f;
+    --md-surface-4: #2b2830;
+    --md-on-surface: #E6E1E5;
+    --md-on-surface-variant: #CAC4D0;
+    --md-outline: #938F99;
+    --md-outline-variant: #49454F;
+
+    --md-shape-xs: 4px;
+    --md-shape-sm: 8px;
+    --md-shape-md: 12px;
+    --md-shape-lg: 16px;
+    --md-shape-full: 9999px;
+
+    --md-motion-standard: cubic-bezier(0.2, 0, 0, 1);
+
+    --md-font-display: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+    --md-font-body: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+    --md-font-mono: 'Roboto Mono', 'Courier New', monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--md-surface);
+    background-image:
+        radial-gradient(circle at 15% 0%, rgba(208,188,255,0.08), transparent 45%),
+        radial-gradient(circle at 100% 20%, rgba(109,213,140,0.05), transparent 40%);
+    color: var(--md-on-surface);
+    font-family: var(--md-font-body);
+    padding: 24px 16px 80px;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* ---------- Header ---------- */
+header.top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(20,18,24,0.82);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    margin: -24px -16px 0;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--md-outline-variant);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-badge {
+    width: 34px; height: 34px;
+    border-radius: var(--md-shape-sm);
+    background: linear-gradient(135deg, var(--md-primary-container), var(--md-primary));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+}
+.brand h1 {
+    font-family: var(--md-font-display);
+    font-size: 15px;
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: .2px;
+}
+.brand .subtitle {
+    font-size: 11.5px;
+    color: var(--md-on-surface-variant);
+    margin: 1px 0 0;
+}
+.lang-select {
+    padding: 6px 10px;
+    border-radius: var(--md-shape-sm);
+    background: var(--md-surface-3);
+    color: var(--md-on-surface);
+    border: 1px solid var(--md-outline-variant);
+    font-family: var(--md-font-body);
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    flex-shrink: 0;
+}
+
+/* ---------- Hero ---------- */
+.hero {
+    padding: 36px 22px 30px;
+    text-align: center;
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-lg);
+    background: linear-gradient(180deg, var(--md-surface-1), var(--md-surface));
+    margin-top: 18px;
+}
+.hero .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .6px;
+    text-transform: uppercase;
+    color: var(--md-on-primary-container);
+    background: var(--md-primary-container);
+    padding: 5px 12px;
+    border-radius: var(--md-shape-full);
+    margin-bottom: 16px;
+}
+.hero h2 {
+    font-family: var(--md-font-display);
+    font-size: 26px;
+    font-weight: 800;
+    margin: 0 0 10px;
+    line-height: 1.3;
+}
+.hero p.lead {
+    max-width: 560px;
+    margin: 0 auto;
+    color: var(--md-on-surface-variant);
+    font-size: 14px;
+}
+.hero-links {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: var(--md-shape-full);
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid var(--md-outline-variant);
+    transition: all .15s var(--md-motion-standard);
+    font-family: var(--md-font-body);
+}
+.btn-primary { background: var(--md-primary); color: var(--md-on-primary); border-color: var(--md-primary); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost { background: transparent; color: var(--md-on-surface); }
+.btn-ghost:hover { background: rgba(255,255,255,0.06); }
+
+/* ---------- Nav pills ---------- */
+.toc {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 4px 0 2px;
+}
+.toc a {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--md-on-surface-variant);
+    background: var(--md-surface-2);
+    border: 1px solid var(--md-outline-variant);
+    padding: 6px 12px;
+    border-radius: var(--md-shape-full);
+    text-decoration: none;
+    transition: all .15s var(--md-motion-standard);
+    white-space: nowrap;
+}
+.toc a:hover { color: var(--md-on-surface); border-color: var(--md-primary); background: var(--md-surface-3); }
+
+/* ---------- Section cards ---------- */
+section.card {
+    background: var(--md-surface-1);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-lg);
+    padding: 22px 22px 24px;
+    scroll-margin-top: 90px;
+}
+.section-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+.section-num {
+    font-family: var(--md-font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--md-on-primary-container);
+    background: var(--md-primary-container);
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.section-head h3 {
+    font-family: var(--md-font-display);
+    font-size: 17px;
+    font-weight: 800;
+    margin: 0;
+}
+.card p { font-size: 14px; color: var(--md-on-surface); margin: 0 0 12px; }
+.card p:last-child { margin-bottom: 0; }
+.card ul, .card ol { margin: 0 0 12px; padding-left: 20px; font-size: 14px; }
+.card li { margin-bottom: 6px; }
+.card li:last-child { margin-bottom: 0; }
+.card strong { color: var(--md-on-primary-container); }
+.card code {
+    font-family: var(--md-font-mono);
+    background: var(--md-surface-3);
+    border: 1px solid var(--md-outline-variant);
+    padding: 1px 6px;
+    border-radius: var(--md-shape-xs);
+    font-size: 12.5px;
+    color: var(--md-primary);
+}
+.muted { color: var(--md-outline); font-size: 12px; }
+
+.callout {
+    display: flex;
+    gap: 10px;
+    border-radius: var(--md-shape-md);
+    padding: 12px 14px;
+    font-size: 13px;
+    border: 1px solid var(--md-outline-variant);
+    background: var(--md-surface-2);
+    margin: 12px 0;
+}
+.callout .icon { font-size: 16px; flex-shrink: 0; line-height: 1.4; }
+.callout.warn { border-color: rgba(242,184,181,0.4); background: rgba(140,29,24,0.12); }
+.callout.warn strong { color: var(--md-error); }
+.callout.info { border-color: rgba(208,188,255,0.35); background: rgba(79,55,139,0.12); }
+.callout.tip { border-color: rgba(109,213,140,0.35); background: rgba(109,213,140,0.08); }
+
+/* ---------- Code blocks ---------- */
+.code-block {
+    position: relative;
+    background: var(--md-surface);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-md);
+    margin: 12px 0;
+    overflow: hidden;
+}
+.code-block .code-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 12px;
+    background: var(--md-surface-3);
+    border-bottom: 1px solid var(--md-outline-variant);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .3px;
+    color: var(--md-on-surface-variant);
+    text-transform: uppercase;
+}
+.copy-btn {
+    background: none;
+    border: 1px solid var(--md-outline-variant);
+    color: var(--md-on-surface-variant);
+    font-family: var(--md-font-body);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: var(--md-shape-full);
+    cursor: pointer;
+    transition: all .15s var(--md-motion-standard);
+}
+.copy-btn:hover { background: rgba(255,255,255,0.08); color: var(--md-on-surface); }
+.copy-btn.copied { background: var(--md-success); color: #0f2415; border-color: var(--md-success); }
+pre.code {
+    margin: 0;
+    padding: 14px;
+    overflow-x: auto;
+    font-family: var(--md-font-mono);
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--md-on-surface);
+    white-space: pre;
+}
+pre.code .c1 { color: var(--md-outline); }
+pre.code .k { color: var(--md-primary); }
+pre.code .s { color: var(--md-success); }
+
+/* ---------- Diagram ---------- */
+.diagram-wrap {
+    background: var(--md-surface);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-md);
+    padding: 10px;
+    margin: 14px 0;
+    overflow-x: auto;
+}
+.diagram-wrap svg { display: block; margin: 0 auto; min-width: 560px; }
+
+/* ---------- Timeline ---------- */
+.timeline { display: flex; flex-direction: column; gap: 0; margin: 14px 0; }
+.tl-item { display: flex; gap: 14px; }
+.tl-rail { display: flex; flex-direction: column; align-items: center; }
+.tl-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--md-primary);
+    box-shadow: 0 0 0 4px rgba(208,188,255,0.18);
+    flex-shrink: 0; margin-top: 3px;
+}
+.tl-line { width: 2px; flex: 1; background: var(--md-outline-variant); margin: 2px 0; }
+.tl-item:last-child .tl-line { display: none; }
+.tl-content { padding-bottom: 20px; }
+.tl-content h4 { margin: 0 0 4px; font-size: 13.5px; font-weight: 700; color: var(--md-on-surface); }
+.tl-content p { font-size: 13px; margin: 0; color: var(--md-on-surface-variant); }
+
+/* ---------- Comparison table ---------- */
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: var(--md-shape-md); border: 1px solid var(--md-outline-variant); }
+table.compare { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 560px; }
+table.compare th, table.compare td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--md-outline-variant); }
+table.compare th { background: var(--md-surface-3); font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: var(--md-on-surface-variant); }
+table.compare td:first-child { font-weight: 700; color: var(--md-on-surface-variant); white-space: nowrap; }
+table.compare tr:last-child td { border-bottom: none; }
+table.compare td.good { color: var(--md-success); }
+table.compare tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+/* ---------- Grid feature cards ---------- */
+.feature-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 14px 0;
+}
+.feature {
+    background: var(--md-surface-2);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-md);
+    padding: 12px 14px;
+}
+.feature .ficon { font-size: 16px; margin-bottom: 6px; display: block; }
+.feature h5 { margin: 0 0 4px; font-size: 12.5px; font-weight: 700; }
+.feature p { margin: 0; font-size: 12px; color: var(--md-on-surface-variant); }
+
+/* ---------- Arch tabs (3 stages) ---------- */
+.stage-grid { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
+.stage {
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-md);
+    background: var(--md-surface-2);
+    padding: 14px 16px;
+}
+.stage-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px; margin-bottom: 6px; }
+.stage-tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    padding: 2px 8px; border-radius: var(--md-shape-full);
+    background: var(--md-primary-container); color: var(--md-on-primary-container);
+}
+.stage p { font-size: 12.5px; color: var(--md-on-surface-variant); margin: 0; }
+
+/* ---------- Env table ---------- */
+.env-grid { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.env-row {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--md-outline-variant);
+    font-size: 12.5px;
+    align-items: baseline;
+}
+.env-row:last-child { border-bottom: none; }
+.env-key { font-family: var(--md-font-mono); color: var(--md-primary); font-weight: 700; white-space: nowrap; }
+.env-desc { color: var(--md-on-surface-variant); }
+
+/* ---------- Footer ---------- */
+footer {
+    text-align: center;
+    padding: 24px 10px 0;
+    color: var(--md-outline);
+    font-size: 11.5px;
+    line-height: 1.7;
+}
+footer a { color: var(--md-on-surface-variant); }
+
+.toast-container {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 999;
+    align-items: center;
+}
+.toast {
+    padding: 10px 18px;
+    border-radius: var(--md-shape-sm);
+    background: var(--md-surface-4);
+    border: 1px solid var(--md-outline-variant);
+    color: var(--md-on-surface);
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.3);
+    animation: toast-in .2s var(--md-motion-standard);
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px);} to { opacity:1; transform: translateY(0);} }
+
+@media (max-width: 560px) {
+    .feature-grid { grid-template-columns: 1fr; }
+    .env-row { grid-template-columns: 1fr; }
+    .hero h2 { font-size: 21px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+    <header class="top">
+        <div class="brand">
+            <div class="brand-badge">🛰️</div>
+            <div>
+                <h1 data-i18n="brand_title">Xray VLESS-WS Bypass PoC</h1>
+                <p class="subtitle" data-i18n="brand_sub">Anycast IP-range piggybacking, explained</p>
+            </div>
+        </div>
+        <select class="lang-select" id="lang-select" onchange="changeLanguage(this.value)">
+            <option value="en">English</option>
+            <option value="vi">Tiếng Việt</option>
+        </select>
+    </header>
+
+    <!-- HERO -->
+    <div class="hero">
+        <span class="kicker" data-i18n="kicker">Educational Proof of Concept</span>
+        <h2 data-i18n="hero_title">The Anatomy of a Loophole</h2>
+        <p class="lead" data-i18n="hero_lead">How an inverted VLESS configuration exposes the hidden intersection of carrier DPI firewalls and global Anycast CDNs — a diary, a diagram, and a working PoC.</p>
+        <div class="hero-links">
+            <a class="btn btn-primary" href="https://github.com/vincentng295/xray_vless_ws_server" target="_blank" rel="noopener" data-i18n="btn_github">★ View on GitHub</a>
+            <a class="btn btn-ghost" href="#architecture" data-i18n="btn_howworks">See how it works ↓</a>
+        </div>
+    </div>
+
+    <nav class="toc">
+        <a href="#story" data-i18n="nav_story">1. The Story</a>
+        <a href="#paradox" data-i18n="nav_paradox">2. The Paradox</a>
+        <a href="#pipeline" data-i18n="nav_pipeline">3. The Pipeline</a>
+        <a href="#architecture" data-i18n="nav_arch">4. Deployment Tiers</a>
+        <a href="#transport" data-i18n="nav_transport">5. WS vs xHTTP</a>
+        <a href="#features" data-i18n="nav_features">6. Features</a>
+        <a href="#usage" data-i18n="nav_usage">7. Usage</a>
+        <a href="#config" data-i18n="nav_config">8. Config</a>
+        <a href="#reflection" data-i18n="nav_reflection">9. Reflection</a>
+    </nav>
+
+    <!-- 1. STORY -->
+    <section class="card" id="story">
+        <div class="section-head">
+            <div class="section-num">1</div>
+            <h3 data-i18n="story_title">The Midnight Phenomenon</h3>
+        </div>
+        <p data-i18n="story_p1">On a rainy evening, a friend forwarded a cryptic string — a customized VLESS configuration rumored to grant unrestricted global internet access using nothing more than a carrier's zero-rated entertainment data bundle (in this case, an unmetered TikTok-only plan).</p>
+
+        <div class="code-block">
+            <div class="code-label"><span data-i18n="lbl_vless_uri">Received VLESS URI</span>
+                <button class="copy-btn" onclick="copyCode(this, 'code-uri')" data-i18n="btn_copy">Copy</button>
+            </div>
+            <pre class="code" id="code-uri"><span class="k">vless://</span>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx<span class="k">@</span>api24-normal-alisg.tiktokv.com<span class="k">:</span>443<span class="k">?</span>encryption<span class="k">=</span>none<span class="k">&amp;</span>security<span class="k">=</span>tls<span class="k">&amp;</span>headerType<span class="k">=</span>none<span class="k">&amp;</span>type<span class="k">=</span>grpc<span class="k">&amp;</span>allowInsecure<span class="k">=</span>0<span class="k">&amp;</span>fp<span class="k">=</span>chrome<span class="k">&amp;</span>sni<span class="k">=</span>tiktok2.p***4g.com<span class="k">&amp;</span>serviceName<span class="k">=</span>PL4G<span class="c1">#4G_FREE_SERVER</span></pre>
+        </div>
+
+        <p data-i18n="story_p2">It worked flawlessly — 4K YouTube with zero buffering, and the primary cellular balance stayed completely untouched. As a programmer, that flawless result immediately triggered a cognitive itch: a black box whose mechanics contradicted basic networking principles.</p>
+    </section>
+
+    <!-- 2. PARADOX -->
+    <section class="card" id="paradox">
+        <div class="section-head">
+            <div class="section-num">2</div>
+            <h3 data-i18n="paradox_title">The Great Paradox: Everything Is Inverted</h3>
+        </div>
+        <p data-i18n="paradox_p1">Isolating the query string revealed a structural paradox that inverts core routing theory:</p>
+        <div class="feature-grid">
+            <div class="feature">
+                <span class="ficon">📮</span>
+                <h5 data-i18n="paradox_f1_title">Server Address field</h5>
+                <p data-i18n="paradox_f1_body">Points to TikTok's own official backend node — not a leased VPS.</p>
+            </div>
+            <div class="feature">
+                <span class="ficon">🪪</span>
+                <h5 data-i18n="paradox_f2_title">SNI field</h5>
+                <p data-i18n="paradox_f2_body">Displays the provider's real domain — the exact opposite of what you'd expect for firewall evasion.</p>
+            </div>
+        </div>
+        <div class="callout info">
+            <span class="icon">💡</span>
+            <p data-i18n="paradox_callout">By standard routing logic, connecting to Node B means your Address field resolves to Node B. Here the client connects to TikTok's cloud, yet traffic exits through a third-party VPS — the obsession that kicked off the investigation.</p>
+        </div>
+    </section>
+
+    <!-- 3. PIPELINE -->
+    <section class="card" id="pipeline">
+        <div class="section-head">
+            <div class="section-num">3</div>
+            <h3 data-i18n="pipeline_title">Demystifying the Pipeline</h3>
+        </div>
+
+        <div class="timeline">
+            <div class="tl-item">
+                <div class="tl-rail"><div class="tl-dot"></div><div class="tl-line"></div></div>
+                <div class="tl-content">
+                    <h4 data-i18n="pl_a_title">Step A — The Blind Spot of DPI</h4>
+                    <p data-i18n="pl_a_body">Carrier billing firewalls whitelist purely by destination IP/ASN range. The SNI field — plainly visible, unencrypted, in the TLS ClientHello — is never actually inspected. If it were, this configuration would be rejected instantly.</p>
+                </div>
+            </div>
+            <div class="tl-item">
+                <div class="tl-rail"><div class="tl-dot"></div><div class="tl-line"></div></div>
+                <div class="tl-content">
+                    <h4 data-i18n="pl_b_title">Step B — Multi-Tenant CDN Convergence</h4>
+                    <p data-i18n="pl_b_body">TikTok distributes its media workloads across Cloudflare's global Anycast edge. Independent proxy providers deploy their own routing front-ends on that very same shared address space.</p>
+                </div>
+            </div>
+            <div class="tl-item">
+                <div class="tl-rail"><div class="tl-dot"></div></div>
+                <div class="tl-content">
+                    <h4 data-i18n="pl_c_title">Step C — The Layer-7 Redirect Handover</h4>
+                    <p data-i18n="pl_c_body">At the Cloudflare edge, TLS terminates and the CDN reads the real SNI/Host header, discovers it maps to a different tenant, and reroutes the decrypted stream to that provider's upstream VPS — which decodes the VLESS tunnel and proxies onward to the open web.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="diagram-wrap">
+            <svg viewBox="0 0 640 560" xmlns="http://www.w3.org/2000/svg" font-family="Roboto Mono, monospace">
+                <defs>
+                    <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+                        <path d="M0,0 L8,4 L0,8 Z" fill="#938F99"/>
+                    </marker>
+                </defs>
+                <!-- Client -->
+                <rect x="180" y="10" width="280" height="46" rx="10" fill="#28262f" stroke="#49454F"/>
+                <text x="320" y="38" text-anchor="middle" fill="#E6E1E5" font-size="13" font-weight="700">📱 Client Device</text>
+
+                <line x1="320" y1="56" x2="320" y2="90" stroke="#938F99" stroke-width="1.5" marker-end="url(#arrow)"/>
+                <text x="335" y="72" fill="#CAC4D0" font-size="9.5">DNS → TikTok Anycast IP</text>
+                <text x="335" y="84" fill="#CAC4D0" font-size="9.5">SNI ≠ TikTok host</text>
+
+                <!-- DPI -->
+                <rect x="140" y="92" width="360" height="58" rx="10" fill="#8C1D18" fill-opacity="0.18" stroke="#F2B8B5"/>
+                <text x="320" y="116" text-anchor="middle" fill="#F2B8B5" font-size="13" font-weight="700">🧱 Carrier DPI / Firewall</text>
+                <text x="320" y="136" text-anchor="middle" fill="#CAC4D0" font-size="10">Checks dest. IP/ASN range only — SNI unread</text>
+
+                <line x1="320" y1="150" x2="320" y2="184" stroke="#938F99" stroke-width="1.5" marker-end="url(#arrow)"/>
+                <text x="335" y="172" fill="#6DD58C" font-size="9.5">✓ waved through, unmetered</text>
+
+                <!-- Cloudflare edge -->
+                <rect x="120" y="186" width="400" height="130" rx="10" fill="#4F378B" fill-opacity="0.20" stroke="#D0BCFF"/>
+                <text x="320" y="210" text-anchor="middle" fill="#EADDFF" font-size="13" font-weight="700">☁️ Cloudflare Edge Anycast Node</text>
+                <text x="320" y="232" text-anchor="middle" fill="#CAC4D0" font-size="10">Terminates TLS using presented SNI</text>
+                <text x="320" y="250" text-anchor="middle" fill="#CAC4D0" font-size="10">Reads inner Host/SNI → maps to real tenant</text>
+                <rect x="150" y="264" width="340" height="38" rx="8" fill="#28262f" stroke="#49454F"/>
+                <text x="320" y="287" text-anchor="middle" fill="#D0BCFF" font-size="10.5" font-weight="700">Layer-7 handover ↴ mid-flight reroute</text>
+
+                <line x1="320" y1="316" x2="320" y2="350" stroke="#938F99" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+                <!-- Provider VPS -->
+                <rect x="150" y="352" width="340" height="58" rx="10" fill="#28262f" stroke="#6DD58C"/>
+                <text x="320" y="376" text-anchor="middle" fill="#6DD58C" font-size="13" font-weight="700">🖥️ Provider's VPS Node</text>
+                <text x="320" y="396" text-anchor="middle" fill="#CAC4D0" font-size="10">Decodes VLESS tunnel → forwards request</text>
+
+                <line x1="320" y1="410" x2="320" y2="444" stroke="#938F99" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+                <!-- Open web -->
+                <rect x="200" y="446" width="240" height="46" rx="10" fill="#232029" stroke="#49454F"/>
+                <text x="320" y="474" text-anchor="middle" fill="#E6E1E5" font-size="13" font-weight="700">🌐 Open Internet</text>
+
+                <text x="320" y="524" text-anchor="middle" fill="#938F99" font-size="10" font-style="italic">Fig. 1 — Layer-7 decoupling: outer route vs. inner intent</text>
+            </svg>
+        </div>
+
+        <div class="callout tip">
+            <span class="icon">🔑</span>
+            <p data-i18n="pl_key">The core exploit isn't an "outer vs inner header" trick — the SNI is sitting in plaintext the whole time. It's simply never checked.</p>
+        </div>
+    </section>
+
+    <!-- 4. ARCHITECTURE TIERS -->
+    <section class="card" id="architecture">
+        <div class="section-head">
+            <div class="section-num">4</div>
+            <h3 data-i18n="arch_title">Architecture: PoC → Custom Domain → Production</h3>
+        </div>
+        <p data-i18n="arch_lead">This repo is a localized staging environment to validate the Layer-7 DPI bypass before committing to real infrastructure.</p>
+
+        <div class="stage-grid">
+            <div class="stage">
+                <div class="stage-title"><span class="stage-tag" data-i18n="stage1_tag">Quick test</span><span data-i18n="stage1_title">1. Ephemeral Cloudflare Tunnel</span></div>
+                <p data-i18n="stage1_body"><code>cloudflared tunnel --url</code> generates a random <code>*.trycloudflare.com</code> subdomain on every run — free and zero-config, but not persistent.</p>
+            </div>
+            <div class="stage">
+                <div class="stage-title"><span class="stage-tag" data-i18n="stage2_tag">Supported in main.py</span><span data-i18n="stage2_title">2. Custom Domain via Named Tunnel</span></div>
+                <p data-i18n="stage2_body">Supplying a <code>TUNNEL_TOKEN</code> and a custom <code>WS_HOST</code> switches to a persistent Cloudflare Named Tunnel — a fixed domain with no public IP required on your homelab box.</p>
+            </div>
+            <div class="stage">
+                <div class="stage-title"><span class="stage-tag" data-i18n="stage3_tag">Commercial</span><span data-i18n="stage3_title">3. Production Infrastructure</span></div>
+                <p data-i18n="stage3_body">A dedicated Ubuntu VPS runs Xray natively on ports 80/443, fronted by Cloudflare for SaaS (Custom Hostnames + Fallback Origin) to permanently separate gateway IPs from the core proxy server.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 5. TRANSPORT COMPARISON -->
+    <section class="card" id="transport">
+        <div class="section-head">
+            <div class="section-num">5</div>
+            <h3 data-i18n="transport_title">Transport Comparison: WebSocket vs. xHTTP</h3>
+        </div>
+        <p data-i18n="transport_lead">The shift from VLESS + WebSocket to VLESS + xHTTP (<code>packet-up</code> mode) is a major turning point behind Cloudflare's CDN.</p>
+
+        <div class="table-wrap">
+            <table class="compare">
+                <thead>
+                    <tr>
+                        <th data-i18n="th_criteria">Criteria</th>
+                        <th data-i18n="th_ws">VLESS + WebSocket</th>
+                        <th data-i18n="th_xhttp">VLESS + xHTTP (packet-up)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td data-i18n="row1_h">Protocol nature</td><td data-i18n="row1_ws">HTTP/1.1 Upgrade to WebSocket (TCP)</td><td data-i18n="row1_x">HTTP/2 or HTTP/3 stream (POST/upload)</td></tr>
+                    <tr><td data-i18n="row2_h">Data mechanism</td><td data-i18n="row2_ws">Full-duplex connection</td><td data-i18n="row2_x">Separate up/down flows (packet-up)</td></tr>
+                    <tr><td data-i18n="row3_h">CDN compatibility</td><td data-i18n="row3_ws">Good, prone to throttling/CAPTCHA</td><td class="good" data-i18n="row3_x">Excellent — mimics a plain HTTP POST</td></tr>
+                    <tr><td data-i18n="row4_h">Latency</td><td data-i18n="row4_ws">Higher (handshake + HOL blocking)</td><td class="good" data-i18n="row4_x">Lower (multiplexing, 0/1-RTT)</td></tr>
+                    <tr><td data-i18n="row5_h">Bandwidth</td><td data-i18n="row5_ws">Prone to congestion on large transfers</td><td class="good" data-i18n="row5_x">Higher & more stable</td></tr>
+                    <tr><td data-i18n="row6_h">Stealth</td><td data-i18n="row6_ws">Easier for modern DPI to fingerprint</td><td class="good" data-i18n="row6_x">Harder to detect — looks like file upload traffic</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="callout tip">
+            <span class="icon">⚡</span>
+            <p data-i18n="transport_callout"><strong>Bottom line:</strong> WS is the proven legendary workhorse; xHTTP packet-up is the new standard — lower ping, higher throughput, better resilience against DPI. <code>main.py</code> supports both at once via <code>TRANSPORT=websocket,xhttp</code>.</p>
+        </div>
+    </section>
+
+    <!-- 6. FEATURES -->
+    <section class="card" id="features">
+        <div class="section-head">
+            <div class="section-num">6</div>
+            <h3 data-i18n="features_title">Script Features</h3>
+        </div>
+        <div class="feature-grid">
+            <div class="feature"><span class="ficon">⚙️</span><h5 data-i18n="feat1_h">Dynamic Environment Orchestration</h5><p data-i18n="feat1_b">Automated verification and generation of localized <code>.env</code> dependencies.</p></div>
+            <div class="feature"><span class="ficon">🔀</span><h5 data-i18n="feat2_h">Quick & Named Tunnels</h5><p data-i18n="feat2_b">Auto-detects whether to launch an ephemeral <code>trycloudflare.com</code> tunnel or a persistent custom domain.</p></div>
+            <div class="feature"><span class="ficon">🛡️</span><h5 data-i18n="feat3_h">WARP Outbound Integration</h5><p data-i18n="feat3_b">Optional Cloudflare WARP egress via <code>wgcf-cli</code> for privacy and bypassing strict IP bans.</p></div>
+            <div class="feature"><span class="ficon">📦</span><h5 data-i18n="feat4_h">Auto-Architecture Binaries</h5><p data-i18n="feat4_b">Bundled injectors detect platform kernels and pull current Xray / cloudflared / wgcf runtimes.</p></div>
+            <div class="feature"><span class="ficon">📊</span><h5 data-i18n="feat5_h">Async Logging & Web UI Monitor</h5><p data-i18n="feat5_b">Real-time log relay through an integrated background HTTP daemon.</p></div>
+            <div class="feature"><span class="ficon">🔗</span><h5 data-i18n="feat6_h">Webhook & JSON Export</h5><p data-i18n="feat6_b">Auto-generates <code>frp_info.config</code> / <code>frp_info.json</code>, optionally dispatched to a <code>WEBHOOK_URL</code>.</p></div>
+        </div>
+    </section>
+
+    <!-- 7. USAGE -->
+    <section class="card" id="usage">
+        <div class="section-head">
+            <div class="section-num">7</div>
+            <h3 data-i18n="usage_title">Installation &amp; Usage</h3>
+        </div>
+        <div class="code-block">
+            <div class="code-label"><span data-i18n="lbl_shell">Shell</span>
+                <button class="copy-btn" onclick="copyCode(this, 'code-usage')" data-i18n="btn_copy">Copy</button>
+            </div>
+            <pre class="code" id="code-usage"><span class="c1"># Clone the source code</span>
+git clone https://github.com/vincentng295/xray_vless_ws_server
+
+<span class="c1"># Move into the project directory</span>
+cd xray_vless_ws_server
+
+<span class="c1"># Install the required Python dependencies</span>
+pip install -r requirements.txt
+
+<span class="c1"># Start the server</span>
+python main.py</pre>
+        </div>
+    </section>
+
+    <!-- 8. CONFIG -->
+    <section class="card" id="config">
+        <div class="section-head">
+            <div class="section-num">8</div>
+            <h3 data-i18n="config_title">Configuration (.env)</h3>
+        </div>
+        <div class="code-block">
+            <div class="code-label"><span>.env</span>
+                <button class="copy-btn" onclick="copyCode(this, 'code-env')" data-i18n="btn_copy">Copy</button>
+            </div>
+            <pre class="code" id="code-env">PORT=127.0.0.1:8888,0.0.0.0:443,0.0.0.0:80
+XRAY_UUID=5ccad305-e243-4bb2-abf0-1e37189ce4e8
+FAKE_SNI=api24-normal-alisg.tiktokv.com
+WS_PATH=/tiktok4g
+WS_HOST=v2ray.yourdomain.com
+TRANSPORT=websocket
+XHTTP_MODE=packet-up
+TUNNEL_TOKEN=eyJhSWQiOiI...
+ENABLE_WARP=false
+WEBHOOK_URL=</pre>
+        </div>
+
+        <div class="env-grid">
+            <div class="env-row"><span class="env-key">PORT</span><span class="env-desc" data-i18n="env_port">Comma-separated inbound ports/interfaces for Xray.</span></div>
+            <div class="env-row"><span class="env-key">XRAY_UUID</span><span class="env-desc" data-i18n="env_uuid">UUID string used for VLESS client authentication.</span></div>
+            <div class="env-row"><span class="env-key">FAKE_SNI</span><span class="env-desc" data-i18n="env_fakesni">Zero-rated domain used by clients for DNS/IP resolution (e.g. a TikTok CDN domain).</span></div>
+            <div class="env-row"><span class="env-key">WS_PATH</span><span class="env-desc" data-i18n="env_wspath">WebSocket / xHTTP path endpoint.</span></div>
+            <div class="env-row"><span class="env-key">WS_HOST</span><span class="env-desc" data-i18n="env_wshost">Custom domain for your Named Tunnel, or <code>trycloudflare.com</code> for quick tunnels.</span></div>
+            <div class="env-row"><span class="env-key">TRANSPORT</span><span class="env-desc" data-i18n="env_transport"><code>websocket</code>, <code>xhttp</code>, or both at once. Dual mode demuxes transparently over the same port/path.</span></div>
+            <div class="env-row"><span class="env-key">XHTTP_MODE</span><span class="env-desc" data-i18n="env_xhttpmode"><code>packet-up</code> (recommended), <code>stream-up</code>, or <code>stream-one</code>. Only used with xHTTP.</span></div>
+            <div class="env-row"><span class="env-key">TUNNEL_TOKEN</span><span class="env-desc" data-i18n="env_token">Cloudflare Tunnel Token for a persistent custom domain. Leave blank for free temporary URLs.</span></div>
+            <div class="env-row"><span class="env-key">ENABLE_WARP</span><span class="env-desc" data-i18n="env_warp">Set <code>true</code> to route Xray outbound through Cloudflare WARP.</span></div>
+            <div class="env-row"><span class="env-key">WEBHOOK_URL</span><span class="env-desc" data-i18n="env_webhook">Optional endpoint to receive connection payloads on tunnel init.</span></div>
+        </div>
+    </section>
+
+    <!-- 9. REFLECTION -->
+    <section class="card" id="reflection">
+        <div class="section-head">
+            <div class="section-num">9</div>
+            <h3 data-i18n="reflection_title">Engineering Reflection</h3>
+        </div>
+        <p data-i18n="reflection_p1">This isn't a system bug — it's an elegant, creative exploitation of cloud infrastructure. Carrier inspection only evaluates the outer perimeter of a packet, while global CDNs process the inner intent.</p>
+        <div class="callout warn">
+            <span class="icon">⚠️</span>
+            <p data-i18n="reflection_p2"><strong>This is a cat-and-mouse game.</strong> The moment carriers start reading the SNI already sitting in plaintext — checking it against a known TikTok hostname — this configuration breaks instantly. Passing unencrypted personal traffic through an unverified foreign VPS also carries real privacy risk.</p>
+        </div>
+        <p data-i18n="reflection_p3" class="muted">Behind every paradox on the web lies a deeply logical narrative crafted by clever engineering — and a reminder that in networking, nothing is truly free, and nothing is completely secure.</p>
+    </section>
+
+    <footer>
+        <p data-i18n="footer_thanks">Acknowledgements: by reverse-engineering commercial 4G bypass services, the structural mechanics of this framework were verified.</p>
+        <p>© 2026 · <a href="https://github.com/vincentng295/xray_vless_ws_server" target="_blank" rel="noopener">xray_vless_ws_server</a> · <span data-i18n="footer_edu">For educational research purposes only</span></p>
+    </footer>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+const i18n = {
+en: {
+    brand_title: "Xray VLESS-WS Bypass PoC",
+    brand_sub: "Anycast IP-range piggybacking, explained",
+    kicker: "Educational Proof of Concept",
+    hero_title: "The Anatomy of a Loophole",
+    hero_lead: "How an inverted VLESS configuration exposes the hidden intersection of carrier DPI firewalls and global Anycast CDNs — a diary, a diagram, and a working PoC.",
+    btn_github: "★ View on GitHub",
+    btn_howworks: "See how it works ↓",
+    nav_story: "1. The Story", nav_paradox: "2. The Paradox", nav_pipeline: "3. The Pipeline",
+    nav_arch: "4. Deployment Tiers", nav_transport: "5. WS vs xHTTP", nav_features: "6. Features",
+    nav_usage: "7. Usage", nav_config: "8. Config", nav_reflection: "9. Reflection",
+    story_title: "The Midnight Phenomenon",
+    story_p1: "On a rainy evening, a friend forwarded a cryptic string — a customized VLESS configuration rumored to grant unrestricted global internet access using nothing more than a carrier's zero-rated entertainment data bundle (in this case, an unmetered TikTok-only plan).",
+    lbl_vless_uri: "Received VLESS URI", btn_copy: "Copy",
+    story_p2: "It worked flawlessly — 4K YouTube with zero buffering, and the primary cellular balance stayed completely untouched. As a programmer, that flawless result immediately triggered a cognitive itch: a black box whose mechanics contradicted basic networking principles.",
+    paradox_title: "The Great Paradox: Everything Is Inverted",
+    paradox_p1: "Isolating the query string revealed a structural paradox that inverts core routing theory:",
+    paradox_f1_title: "Server Address field",
+    paradox_f1_body: "Points to TikTok's own official backend node — not a leased VPS.",
+    paradox_f2_title: "SNI field",
+    paradox_f2_body: "Displays the provider's real domain — the exact opposite of what you'd expect for firewall evasion.",
+    paradox_callout: "By standard routing logic, connecting to Node B means your Address field resolves to Node B. Here the client connects to TikTok's cloud, yet traffic exits through a third-party VPS — the obsession that kicked off the investigation.",
+    pipeline_title: "Demystifying the Pipeline",
+    pl_a_title: "Step A — The Blind Spot of DPI",
+    pl_a_body: "Carrier billing firewalls whitelist purely by destination IP/ASN range. The SNI field — plainly visible, unencrypted, in the TLS ClientHello — is never actually inspected. If it were, this configuration would be rejected instantly.",
+    pl_b_title: "Step B — Multi-Tenant CDN Convergence",
+    pl_b_body: "TikTok distributes its media workloads across Cloudflare's global Anycast edge. Independent proxy providers deploy their own routing front-ends on that very same shared address space.",
+    pl_c_title: "Step C — The Layer-7 Redirect Handover",
+    pl_c_body: "At the Cloudflare edge, TLS terminates and the CDN reads the real SNI/Host header, discovers it maps to a different tenant, and reroutes the decrypted stream to that provider's upstream VPS — which decodes the VLESS tunnel and proxies onward to the open web.",
+    pl_key: "The core exploit isn't an \"outer vs inner header\" trick — the SNI is sitting in plaintext the whole time. It's simply never checked.",
+    arch_title: "Architecture: PoC → Custom Domain → Production",
+    arch_lead: "This repo is a localized staging environment to validate the Layer-7 DPI bypass before committing to real infrastructure.",
+    stage1_tag: "Quick test", stage1_title: "1. Ephemeral Cloudflare Tunnel",
+    stage1_body: "<code>cloudflared tunnel --url</code> generates a random <code>*.trycloudflare.com</code> subdomain on every run — free and zero-config, but not persistent.",
+    stage2_tag: "Supported in main.py", stage2_title: "2. Custom Domain via Named Tunnel",
+    stage2_body: "Supplying a <code>TUNNEL_TOKEN</code> and a custom <code>WS_HOST</code> switches to a persistent Cloudflare Named Tunnel — a fixed domain with no public IP required on your homelab box.",
+    stage3_tag: "Commercial", stage3_title: "3. Production Infrastructure",
+    stage3_body: "A dedicated Ubuntu VPS runs Xray natively on ports 80/443, fronted by Cloudflare for SaaS (Custom Hostnames + Fallback Origin) to permanently separate gateway IPs from the core proxy server.",
+    transport_title: "Transport Comparison: WebSocket vs. xHTTP",
+    transport_lead: "The shift from VLESS + WebSocket to VLESS + xHTTP (<code>packet-up</code> mode) is a major turning point behind Cloudflare's CDN.",
+    th_criteria: "Criteria", th_ws: "VLESS + WebSocket", th_xhttp: "VLESS + xHTTP (packet-up)",
+    row1_h: "Protocol nature", row1_ws: "HTTP/1.1 Upgrade to WebSocket (TCP)", row1_x: "HTTP/2 or HTTP/3 stream (POST/upload)",
+    row2_h: "Data mechanism", row2_ws: "Full-duplex connection", row2_x: "Separate up/down flows (packet-up)",
+    row3_h: "CDN compatibility", row3_ws: "Good, prone to throttling/CAPTCHA", row3_x: "Excellent — mimics a plain HTTP POST",
+    row4_h: "Latency", row4_ws: "Higher (handshake + HOL blocking)", row4_x: "Lower (multiplexing, 0/1-RTT)",
+    row5_h: "Bandwidth", row5_ws: "Prone to congestion on large transfers", row5_x: "Higher & more stable",
+    row6_h: "Stealth", row6_ws: "Easier for modern DPI to fingerprint", row6_x: "Harder to detect — looks like file upload traffic",
+    transport_callout: "<strong>Bottom line:</strong> WS is the proven legendary workhorse; xHTTP packet-up is the new standard — lower ping, higher throughput, better resilience against DPI. <code>main.py</code> supports both at once via <code>TRANSPORT=websocket,xhttp</code>.",
+    features_title: "Script Features",
+    feat1_h: "Dynamic Environment Orchestration", feat1_b: "Automated verification and generation of localized <code>.env</code> dependencies.",
+    feat2_h: "Quick & Named Tunnels", feat2_b: "Auto-detects whether to launch an ephemeral <code>trycloudflare.com</code> tunnel or a persistent custom domain.",
+    feat3_h: "WARP Outbound Integration", feat3_b: "Optional Cloudflare WARP egress via <code>wgcf-cli</code> for privacy and bypassing strict IP bans.",
+    feat4_h: "Auto-Architecture Binaries", feat4_b: "Bundled injectors detect platform kernels and pull current Xray / cloudflared / wgcf runtimes.",
+    feat5_h: "Async Logging & Web UI Monitor", feat5_b: "Real-time log relay through an integrated background HTTP daemon.",
+    feat6_h: "Webhook & JSON Export", feat6_b: "Auto-generates <code>frp_info.config</code> / <code>frp_info.json</code>, optionally dispatched to a <code>WEBHOOK_URL</code>.",
+    usage_title: "Installation & Usage", lbl_shell: "Shell",
+    config_title: "Configuration (.env)",
+    env_port: "Comma-separated inbound ports/interfaces for Xray.",
+    env_uuid: "UUID string used for VLESS client authentication.",
+    env_fakesni: "Zero-rated domain used by clients for DNS/IP resolution (e.g. a TikTok CDN domain).",
+    env_wspath: "WebSocket / xHTTP path endpoint.",
+    env_wshost: "Custom domain for your Named Tunnel, or <code>trycloudflare.com</code> for quick tunnels.",
+    env_transport: "<code>websocket</code>, <code>xhttp</code>, or both at once. Dual mode demuxes transparently over the same port/path.",
+    env_xhttpmode: "<code>packet-up</code> (recommended), <code>stream-up</code>, or <code>stream-one</code>. Only used with xHTTP.",
+    env_token: "Cloudflare Tunnel Token for a persistent custom domain. Leave blank for free temporary URLs.",
+    env_warp: "Set <code>true</code> to route Xray outbound through Cloudflare WARP.",
+    env_webhook: "Optional endpoint to receive connection payloads on tunnel init.",
+    reflection_title: "Engineering Reflection",
+    reflection_p1: "This isn't a system bug — it's an elegant, creative exploitation of cloud infrastructure. Carrier inspection only evaluates the outer perimeter of a packet, while global CDNs process the inner intent.",
+    reflection_p2: "<strong>This is a cat-and-mouse game.</strong> The moment carriers start reading the SNI already sitting in plaintext — checking it against a known TikTok hostname — this configuration breaks instantly. Passing unencrypted personal traffic through an unverified foreign VPS also carries real privacy risk.",
+    reflection_p3: "Behind every paradox on the web lies a deeply logical narrative crafted by clever engineering — and a reminder that in networking, nothing is truly free, and nothing is completely secure.",
+    footer_thanks: "Acknowledgements: by reverse-engineering commercial 4G bypass services, the structural mechanics of this framework were verified.",
+    footer_edu: "For educational research purposes only",
+    toast_copied: "Copied to clipboard",
+},
+vi: {
+    brand_title: "Xray VLESS-WS Bypass PoC",
+    brand_sub: "Kỹ thuật lợi dụng dải IP Anycast, giải thích chi tiết",
+    kicker: "Bản Thử Nghiệm Giáo Dục",
+    hero_title: "Giải Mã Lỗ Hổng",
+    hero_lead: "Cách một cấu hình VLESS đảo ngược phơi bày điểm giao thoa ẩn giữa tường lửa DPI của nhà mạng và các CDN Anycast toàn cầu — nhật ký, sơ đồ, và một PoC hoạt động thực tế.",
+    btn_github: "★ Xem trên GitHub",
+    btn_howworks: "Xem cách hoạt động ↓",
+    nav_story: "1. Câu Chuyện", nav_paradox: "2. Nghịch Lý", nav_pipeline: "3. Luồng Đi",
+    nav_arch: "4. Các Tầng Triển Khai", nav_transport: "5. WS vs xHTTP", nav_features: "6. Tính Năng",
+    nav_usage: "7. Sử Dụng", nav_config: "8. Cấu Hình", nav_reflection: "9. Chiêm Nghiệm",
+    story_title: "Hiện Tượng Nửa Đêm",
+    story_p1: "Vào một đêm mưa, một người bạn gửi cho tôi một chuỗi ký tự bí ẩn — một cấu hình VLESS tùy biến được đồn có thể mở khóa Internet toàn cầu chỉ bằng gói data giải trí miễn phí của nhà mạng (ở đây là gói không giới hạn chỉ dành cho TikTok).",
+    lbl_vless_uri: "URI VLESS nhận được", btn_copy: "Sao chép",
+    story_p2: "Nó hoạt động hoàn hảo — YouTube 4K không hề giật, và dung lượng data chính vẫn nguyên vẹn. Là một lập trình viên, kết quả hoàn hảo này ngay lập tức gây ra một cảm giác khó chịu: một hệ thống hộp đen có cơ chế đi ngược lại các nguyên lý mạng cơ bản.",
+    paradox_title: "Nghịch Lý Lớn: Mọi Thứ Đều Bị Đảo Ngược",
+    paradox_p1: "Khi bóc tách chuỗi truy vấn, một nghịch lý cấu trúc đảo ngược hoàn toàn lý thuyết định tuyến cốt lõi đã lộ diện:",
+    paradox_f1_title: "Trường Server Address",
+    paradox_f1_body: "Trỏ thẳng đến node backend chính thức của TikTok — không phải một VPS được thuê.",
+    paradox_f2_title: "Trường SNI",
+    paradox_f2_body: "Lại hiển thị tên miền thật của nhà cung cấp — hoàn toàn ngược lại với những gì bạn mong đợi để né tường lửa.",
+    paradox_callout: "Theo lý thuyết định tuyến, kết nối tới Node B nghĩa là trường Address phải phân giải ra Node B. Ở đây client kết nối tới đám mây của TikTok, nhưng traffic lại thoát ra qua một VPS bên thứ ba — nỗi ám ảnh khởi đầu cho cuộc điều tra.",
+    pipeline_title: "Giải Mã Luồng Đi Của Dữ Liệu",
+    pl_a_title: "Bước A — Điểm Mù Của DPI",
+    pl_a_body: "Tường lửa tính phí của nhà mạng chỉ whitelist theo dải IP/ASN đích. Trường SNI — hiển thị rõ ràng, không mã hóa, trong TLS ClientHello — không hề bị kiểm tra thật sự. Nếu có, cấu hình này sẽ bị từ chối ngay lập tức.",
+    pl_b_title: "Bước B — Sự Hội Tụ Trên CDN Đa Khách Thuê",
+    pl_b_body: "TikTok phân phối tải media của mình trên hạ tầng Anycast toàn cầu của Cloudflare. Các nhà cung cấp proxy độc lập cũng triển khai front-end định tuyến của họ trên chính không gian địa chỉ dùng chung đó.",
+    pl_c_title: "Bước C — Chuyển Giao Điều Hướng Lớp Layer-7",
+    pl_c_body: "Tại edge của Cloudflare, TLS kết thúc và CDN đọc SNI/Host thật, phát hiện nó thuộc về một tenant khác, rồi định tuyến lại luồng đã giải mã đến VPS thượng nguồn của nhà cung cấp đó — nơi giải mã tunnel VLESS và proxy tiếp ra Internet.",
+    pl_key: "Kỹ thuật khai thác cốt lõi không phải là trò \"header ngoài vs trong\" — SNI vốn đã nằm ở dạng plaintext suốt. Nó chỉ đơn giản là chưa từng bị kiểm tra.",
+    arch_title: "Kiến Trúc: PoC → Domain Riêng → Production",
+    arch_lead: "Kho lưu trữ này là một môi trường thử nghiệm cục bộ để xác thực khả năng vượt DPI Layer-7 trước khi triển khai lên hạ tầng thực tế.",
+    stage1_tag: "Thử nhanh", stage1_title: "1. Cloudflare Tunnel Tạm Thời",
+    stage1_body: "<code>cloudflared tunnel --url</code> tạo ngẫu nhiên một subdomain <code>*.trycloudflare.com</code> mỗi lần chạy — miễn phí, không cần cấu hình, nhưng không cố định.",
+    stage2_tag: "Đã hỗ trợ trong main.py", stage2_title: "2. Domain Riêng Qua Named Tunnel",
+    stage2_body: "Cung cấp <code>TUNNEL_TOKEN</code> và <code>WS_HOST</code> tùy chỉnh sẽ chuyển sang Cloudflare Named Tunnel cố định — một domain cố định mà không cần IP công khai trên máy homelab.",
+    stage3_tag: "Thương mại", stage3_title: "3. Hạ Tầng Production",
+    stage3_body: "Một VPS Ubuntu chuyên dụng chạy Xray native trên cổng 80/443, đứng sau Cloudflare for SaaS (Custom Hostnames + Fallback Origin) để tách biệt vĩnh viễn IP cổng vào khỏi máy chủ proxy lõi.",
+    transport_title: "So Sánh Giao Thức: WebSocket vs. xHTTP",
+    transport_lead: "Sự chuyển dịch từ VLESS + WebSocket sang VLESS + xHTTP (chế độ <code>packet-up</code>) là bước ngoặt lớn khi đứng sau CDN của Cloudflare.",
+    th_criteria: "Tiêu Chí", th_ws: "VLESS + WebSocket", th_xhttp: "VLESS + xHTTP (packet-up)",
+    row1_h: "Bản chất giao thức", row1_ws: "HTTP/1.1 Upgrade sang WebSocket (TCP)", row1_x: "HTTP/2 hoặc HTTP/3 stream (POST/upload)",
+    row2_h: "Cơ chế truyền dữ liệu", row2_ws: "Kết nối full-duplex truyền thống", row2_x: "Tách biệt luồng up/down (packet-up)",
+    row3_h: "Tương thích CDN", row3_ws: "Tốt, dễ bị bóp băng thông/CAPTCHA", row3_x: "Cực tốt — giống hệt HTTP POST thường",
+    row4_h: "Độ trễ", row4_ws: "Cao hơn (handshake + HOL blocking)", row4_x: "Thấp hơn (multiplexing, 0/1-RTT)",
+    row5_h: "Băng thông", row5_ws: "Dễ nghẽn khi truyền dữ liệu lớn", row5_x: "Cao & ổn định hơn",
+    row6_h: "Khả năng ẩn mình", row6_ws: "Dễ bị DPI hiện đại nhận diện", row6_x: "Khó bị phát hiện — giống traffic upload file",
+    transport_callout: "<strong>Tổng kết:</strong> WS là con ngựa thồ huyền thoại đã được kiểm chứng; xHTTP packet-up là chuẩn mực mới — ping thấp hơn, thông lượng cao hơn, chống DPI tốt hơn. <code>main.py</code> hỗ trợ chạy song song cả hai qua <code>TRANSPORT=websocket,xhttp</code>.",
+    features_title: "Các Tính Năng Của Script",
+    feat1_h: "Điều Phối Môi Trường Tự Động", feat1_b: "Tự động kiểm tra và tạo các phụ thuộc <code>.env</code> cục bộ.",
+    feat2_h: "Tunnel Tạm Thời & Cố Định", feat2_b: "Tự động nhận diện để khởi chạy tunnel <code>trycloudflare.com</code> tạm thời hoặc domain riêng cố định.",
+    feat3_h: "Tích Hợp WARP Outbound", feat3_b: "Định tuyến đầu ra Xray qua Cloudflare WARP (<code>wgcf-cli</code>) để bảo mật và né chặn IP.",
+    feat4_h: "Quản Lý Binary Tự Động", feat4_b: "Các injector tích hợp tự nhận diện kernel nền tảng và tải Xray / cloudflared / wgcf mới nhất.",
+    feat5_h: "Log Bất Đồng Bộ & Web UI Monitor", feat5_b: "Chuyển tiếp log thời gian thực qua một HTTP daemon nền tích hợp sẵn.",
+    feat6_h: "Xuất Cấu Hình & Webhook", feat6_b: "Tự động tạo <code>frp_info.config</code> / <code>frp_info.json</code>, tùy chọn gửi tới <code>WEBHOOK_URL</code>.",
+    usage_title: "Cài Đặt & Sử Dụng", lbl_shell: "Shell",
+    config_title: "Cấu Hình (.env)",
+    env_port: "Danh sách cổng/giao diện mạng đầu vào cho Xray, phân cách bằng dấu phẩy.",
+    env_uuid: "Chuỗi UUID dùng để xác thực client VLESS.",
+    env_fakesni: "Domain miễn phí data dùng để client phân giải DNS/IP (ví dụ domain CDN của TikTok).",
+    env_wspath: "Đường dẫn endpoint WebSocket / xHTTP.",
+    env_wshost: "Domain riêng cho Named Tunnel, hoặc <code>trycloudflare.com</code> nếu dùng tunnel tạm thời.",
+    env_transport: "<code>websocket</code>, <code>xhttp</code>, hoặc cả hai cùng lúc. Chế độ song song tự động phân luồng trên cùng port/path.",
+    env_xhttpmode: "<code>packet-up</code> (khuyên dùng), <code>stream-up</code>, hoặc <code>stream-one</code>. Chỉ dùng khi có xHTTP.",
+    env_token: "Token Cloudflare Tunnel để dùng domain riêng cố định. Để trống nếu dùng URL tạm thời miễn phí.",
+    env_warp: "Đặt <code>true</code> để định tuyến Xray outbound qua Cloudflare WARP.",
+    env_webhook: "Endpoint tùy chọn để nhận payload kết nối khi khởi tạo tunnel.",
+    reflection_title: "Chiêm Nghiệm Kỹ Thuật",
+    reflection_p1: "Đây không phải một lỗi hệ thống — mà là một sự khai thác thông minh, sáng tạo đối với hạ tầng đám mây. Hệ thống kiểm tra của nhà mạng chỉ đánh giá lớp vỏ bên ngoài của gói tin, trong khi CDN toàn cầu xử lý mục đích cốt lõi bên trong.",
+    reflection_p2: "<strong>Đây là trò chơi mèo vờn chuột.</strong> Ngay khi nhà mạng bắt đầu đọc SNI vốn đã nằm sẵn dạng plaintext — kiểm tra xem nó có khớp với hostname TikkTok đã biết hay không — cấu hình này sẽ sụp đổ ngay lập tức. Việc truyền traffic cá nhân chưa mã hóa qua một VPS nước ngoài chưa kiểm chứng cũng tiềm ẩn rủi ro riêng tư thực sự.",
+    reflection_p3: "Đằng sau mỗi nghịch lý trên mạng luôn là một câu chuyện logic được xây dựng bởi kỹ nghệ khéo léo — và lời nhắc rằng trong mạng máy tính, không có gì thực sự miễn phí, và không có gì hoàn toàn bảo mật.",
+    footer_thanks: "Lời cảm ơn: bằng cách dịch ngược các dịch vụ bypass 4G thương mại, cơ chế cấu trúc của framework này đã được xác thực.",
+    footer_edu: "Chỉ phục vụ mục đích nghiên cứu, giáo dục",
+    toast_copied: "Đã sao chép",
+},
+};
+
+let currentLang = (navigator.language || 'en').startsWith('vi') ? 'vi' : 'en';
+
+function t(key) {
+    return (i18n[currentLang] && i18n[currentLang][key]) || i18n.en[key] || key;
+}
+
+function applyI18n() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        el.innerHTML = t(el.getAttribute('data-i18n'));
+    });
+}
+
+function changeLanguage(lang) {
+    if (!i18n[lang]) return;
+    currentLang = lang;
+    applyI18n();
+    try { localStorage.setItem('preferred-lang-vless', lang); } catch (e) {}
+}
+
+function showToast(message) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = message;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 2200);
+}
+
+function copyCode(btn, id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const text = el.textContent;
+    const done = () => {
+        const original = btn.textContent;
+        btn.textContent = '✓';
+        btn.classList.add('copied');
+        showToast(t('toast_copied'));
+        setTimeout(() => { btn.textContent = t('btn_copy'); btn.classList.remove('copied'); }, 1400);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(done);
+    } else {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        } catch (e) {}
+        done();
+    }
+}
+
+try {
+    const saved = localStorage.getItem('preferred-lang-vless');
+    if (saved && i18n[saved]) currentLang = saved;
+} catch (e) {}
+document.getElementById('lang-select').value = currentLang;
+applyI18n();
+</script>
+</body>
+</html>
