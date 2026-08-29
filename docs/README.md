@@ -66,6 +66,36 @@ The core mechanism relies on IP/ASN-level whitelisting at the carrier, decoupled
 
 ---
 
+## Transport Comparison: WebSocket vs. xHTTP
+
+The shift from **VLESS + WebSocket (WS)** to **VLESS + xHTTP** (particularly the `packet-up` mode) is a major turning point in the firewall-bypass community. Below is a detailed comparison of the two transports when paired with Cloudflare's CDN:
+
+| Criteria | VLESS + WebSocket (WS) | VLESS + xHTTP (`packet-up`) |
+| --- | --- | --- |
+| **Protocol nature** | HTTP/1.1 Upgrade to WebSocket (TCP) | HTTP/2 or HTTP/3 stream (POST/upload stream) |
+| **Data transfer mechanism** | Traditional full-duplex connection | Separate downstream & upstream flows (`packet-up`) |
+| **Cloudflare CDN compatibility** | Good, but prone to throttling/CAPTCHA challenges | **Excellent** — mimics a standard large HTTP POST payload |
+| **Latency / ping** | Higher (TCP handshake + head-of-line blocking) | **Lower** (multiplexing, 0-RTT/1-RTT optimizations) |
+| **Bandwidth / speed** | Prone to congestion on large transfers | **Higher & more stable**, better utilizes CDN bandwidth |
+| **Stealth** | Easier for modern DPI to fingerprint | **Harder to detect** — resembles ordinary file-upload/API traffic |
+
+### Why xHTTP `packet-up` is a breakthrough over Cloudflare CDN
+
+The term **`packet-up`** (packet upload) solves the biggest historical friction point between proxies and CDNs:
+
+* **Defeating CDN heuristics:** Long-lived WebSocket connections through Cloudflare are easy for the edge to flag, throttle, or drop mid-session. `packet-up` instead packages upstream data as standard HTTP stream/chunked POST requests — to the CDN, this traffic looks indistinguishable from a user uploading a file or calling an API.
+* **Independent up/down optimization:** Downstream and upstream data are handled as separate streams, letting Cloudflare prioritize and route each with less buffering and fewer dropped packets.
+* **Leveraging HTTP/2 & HTTP/3:** WebSocket is bound to plain TCP. xHTTP instead rides HTTP/2 multiplexing or HTTP/3's QUIC (UDP) transport across Cloudflare's edge network, largely eliminating head-of-line blocking.
+
+### Bottom line
+
+* **VLESS + WS:** A proven, "legendary" workhorse for years — simple, easy to configure, and broadly compatible with clients.
+* **VLESS + xHTTP (`packet-up`):** The new standard going forward. Behind Cloudflare's CDN, it typically delivers lower ping, higher throughput, and noticeably better connection resilience against DPI.
+
+This project's `main.py` supports both transports via the `TRANSPORT` variable in `.env` — including running **both simultaneously** (`TRANSPORT=websocket,xhttp`), in which case the generated VLESS links are labeled `WS TLS`, `WS No TLS`, `XHTTP TLS`, and `XHTTP No TLS` so you can compare them side by side.
+
+---
+
 ## Script Features
 
 - **Dynamic Local Environment Orchestration:** Automated verification and generation of localized `.env` dependencies.
@@ -104,6 +134,8 @@ XRAY_UUID=5ccad305-e243-4bb2-abf0-1e37189ce4e8
 FAKE_SNI=api24-normal-alisg.tiktokv.com
 WS_PATH=/tiktok4g
 WS_HOST=v2ray.yourdomain.com
+TRANSPORT=websocket
+XHTTP_MODE=packet-up
 TUNNEL_TOKEN=eyJhSWQiOiI...
 ENABLE_WARP=false
 WEBHOOK_URL=
@@ -115,8 +147,10 @@ WEBHOOK_URL=
 * **`PORT`**: Comma-separated list of inbound ports/interfaces for Xray.
 * **`XRAY_UUID`**: UUID string used for VLESS client authentication.
 * **`FAKE_SNI`**: Zero-rated domain used by clients for DNS/IP resolution (e.g., TikTok CDN domain).
-* **`WS_PATH`**: WebSocket path endpoint.
+* **`WS_PATH`**: WebSocket/xHTTP path endpoint.
 * **`WS_HOST`**: Custom domain for your Named Tunnel, or `trycloudflare.com` for quick temporary tunnels.
+* **`TRANSPORT`**: `websocket`, `xhttp`, or `websocket,xhttp` to run both at once. See [Transport Comparison](#transport-comparison-websocket-vs-xhttp) above. Dual mode transparently demuxes both transports over the same public port/path — no extra Cloudflare configuration needed.
+* **`XHTTP_MODE`**: `packet-up` (recommended, most CDN-compatible), `stream-up`, or `stream-one`. Only used when `TRANSPORT` includes `xhttp`.
 * **`TUNNEL_TOKEN`**: Cloudflare Tunnel Token for persistent custom domain setup. Leave blank to use free temporary `trycloudflare.com` URLs.
 * **`ENABLE_WARP`**: Set to `true` to route Xray outbound through Cloudflare WARP (via `wgcf`).
 * **`WEBHOOK_URL`**: Optional endpoint to receive connection payloads upon tunnel initialization.

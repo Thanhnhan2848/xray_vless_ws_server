@@ -64,6 +64,36 @@ Cơ chế cốt lõi dựa trên việc nhà mạng whitelist theo dải IP/ASN,
 
 ---
 
+## So Sánh Giao Thức: WebSocket vs xHTTP
+
+Sự chuyển dịch từ **VLESS + WebSocket (WS)** sang **VLESS + xHTTP** (đặc biệt là biến thể `packet-up`) đang là bước ngoặt lớn trong cộng đồng bypass firewall. Dưới đây là bảng so sánh chi tiết giữa hai giao thức khi kết hợp với Cloudflare CDN:
+
+| Tiêu chí | VLESS + WebSocket (WS) | VLESS + xHTTP (`packet-up`) |
+| --- | --- | --- |
+| **Bản chất giao thức** | HTTP/1.1 Upgrade sang WebSocket (TCP) | HTTP/2 hoặc HTTP/3 Stream (POST/Upload stream) |
+| **Cơ chế truyền dữ liệu** | Tạo kết nối Full-Duplex truyền thống | Tách biệt luồng Downstream & Upstream (`packet-up`) |
+| **Tương thích Cloudflare CDN** | Tốt, nhưng dễ bị bóp băng thông/bắt Capcha | **Cực tốt**, giả lập đúng chuẩn HTTP POST payload lớn |
+| **Latency / Ping** | Cao hơn (dính TCP Handshake + Head-of-Line Blocking) | **Thấp hơn** (Tối ưu multiplexing, kết nối 0-RTT/1-RTT) |
+| **Băng thông / Tốc độ** | Dễ bị nghẽn khi tải dữ liệu dung lượng lớn | **Cao & ổn định hơn**, khai thác tối đa băng thông CDN |
+| **Khả năng che giấu (Stealth)** | Dễ bị nhận diện bởi DPI hiện đại | **Khó bị phát hiện**, hệt như traffic upload file/API call |
+
+### Điểm đột phá của xHTTP `packet-up` với Cloudflare CDN
+
+Thuật ngữ **`packet-up`** (Packet Upload) trong triển khai xHTTP giải quyết triệt để rào cản lớn nhất giữa proxy và CDN:
+
+* **Đánh lừa cơ chế CDN:** Khi dùng WebSocket qua Cloudflare, kết nối kéo dài lâu dài (long-lived connection) rất dễ bị Cloudflare gắn cờ (flag), bóp băng thông (throttling), hoặc ngắt kết nối giữa chừng (timeout). Trong khi đó, `packet-up` đóng gói dữ liệu đẩy lên (Upstream) thành các luồng HTTP Stream/Chunked POST chuẩn chỉnh. Với CDN, traffic này trông không khác gì hành động người dùng đang upload file hoặc truyền dữ liệu qua API.
+* **Tối ưu luồng Down/Up độc lập:** Dữ liệu nhận về (Downstream) và gửi đi (Upstream) được tách xử lý tối ưu. Cloudflare phân phối các HTTP stream này với ưu tiên cao, giảm thiểu tình trạng đệm (buffer) và rớt gói.
+* **Tận dụng lợi thế HTTP/2 & HTTP/3:** WebSocket bắt buộc phải chạy trên TCP. Trong khi đó, xHTTP tận dụng triệt để Multiplexing của HTTP/2 hoặc giao thức QUIC (UDP) của HTTP/3 qua Cloudflare Edge Network, giúp triệt tiêu hiện tượng nghẽn luồng (Head-of-Line Blocking).
+
+### Tổng kết
+
+* **VLESS + WS:** Đã hoàn thành xuất sắc vai trò "huyền thoại" trong nhiều năm nhờ tính đơn giản, dễ cấu hình và độ tương thích thiết bị rộng.
+* **VLESS + xHTTP (`packet-up`):** Là chuẩn mực mới cho hiện tại và tương lai. Nếu bạn qua CDN Cloudflare, xHTTP không chỉ mang lại Ping thấp hơn, tốc độ cao hơn mà còn tăng đáng kể độ bền của kết nối trước các hệ thống DPI.
+
+Script `main.py` trong dự án này hỗ trợ cả hai giao thức thông qua biến `TRANSPORT` trong `.env` — bao gồm cả khả năng **chạy song song cả hai** (`TRANSPORT=websocket,xhttp`). Khi đó, các link VLESS sinh ra sẽ được gắn nhãn `WS TLS`, `WS No TLS`, `XHTTP TLS`, `XHTTP No TLS` để bạn tiện so sánh trực tiếp.
+
+---
+
 ## Các Tính Năng Của Script
 
 - **Điều Phối Môi Trường Tự Động:** Tự động tạo và kiểm tra file `.env`.
@@ -102,6 +132,8 @@ XRAY_UUID=5ccad305-e243-4bb2-abf0-1e37189ce4e8
 FAKE_SNI=api24-normal-alisg.tiktokv.com
 WS_PATH=/tiktok4g
 WS_HOST=v2ray.tenmien.com
+TRANSPORT=websocket
+XHTTP_MODE=packet-up
 TUNNEL_TOKEN=eyJhSWQiOiI...
 ENABLE_WARP=false
 WEBHOOK_URL=
@@ -113,8 +145,10 @@ WEBHOOK_URL=
 * **`PORT`**: Các cổng/giao diện mạng cho Xray lắng nghe.
 * **`XRAY_UUID`**: Mã UUID xác thực người dùng VLESS.
 * **`FAKE_SNI`**: Tên miền miễn phí data dùng để phân giải IP kết nối.
-* **`WS_PATH`**: Đường dẫn WebSocket path.
+* **`WS_PATH`**: Đường dẫn WebSocket/xHTTP path.
 * **`WS_HOST`**: Tên miền riêng cấu hình trên Cloudflare Tunnel, hoặc để `trycloudflare.com` nếu dùng tunnel tạm thời.
+* **`TRANSPORT`**: `websocket`, `xhttp`, hoặc `websocket,xhttp` để chạy song song cả hai. Xem thêm mục [So Sánh Giao Thức](#so-sánh-giao-thức-websocket-vs-xhttp) ở trên. Ở chế độ song song, cả hai giao thức được tự động phân luồng (demux) trên cùng một port/path công khai — không cần cấu hình thêm gì phía Cloudflare.
+* **`XHTTP_MODE`**: `packet-up` (khuyên dùng, tương thích CDN tốt nhất), `stream-up`, hoặc `stream-one`. Chỉ có tác dụng khi `TRANSPORT` có chứa `xhttp`.
 * **`TUNNEL_TOKEN`**: Token của Cloudflare Tunnel nếu bạn muốn dùng Domain riêng cố định. Để trống nếu muốn dùng tunnel miễn phí ngẫu nhiên.
 * **`ENABLE_WARP`**: Đặt `true` để bật WARP làm outbound cho Xray (qua `wgcf`).
 * **`WEBHOOK_URL`**: Đường dẫn webhook tùy chọn để nhận thông tin cấu hình link sau khi khởi tạo thành công.
