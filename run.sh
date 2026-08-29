@@ -55,9 +55,9 @@ ask_fake_sni(){
     echo -e " ${BLUE}[i]${NC}  FAKE_SNI selection:"
     echo "   1) Free Tiktok  (api24-normal-alisg.tiktokv.com)"
     echo "   2) Free Vina Ko Nen  (vnpt.theworkpc.com)"
-    echo "   3) Both (default)"
-    echo "   Or type a custom FAKE_SNI value"
-    read -r -p " Choose [1/2/3/custom]: " choice
+    echo "   3) Ca hai (mac dinh)"
+    echo "   Hoac nhap gia tri FAKE_SNI tuy chinh"
+    read -r -p " Chon [1/2/3/tuy chinh]: " choice
     case "$choice" in
         1) FAKE_SNI="api24-normal-alisg.tiktokv.com#Free Tiktok" ;;
         2) FAKE_SNI="vnpt.theworkpc.com#Free Vina Ko Nen" ;;
@@ -73,24 +73,24 @@ ask_transport(){
         websocket,xhttp|xhttp,websocket) default_choice="3" ;;
     esac
     echo
-    echo -e " ${BLUE}[i]${NC}  Transport selection:"
-    echo "   1) WebSocket (stable / widest client support)"
-    echo "   2) xHTTP (modern HTTP transport)"
-    echo "   3) Both WebSocket + xHTTP"
-    read -r -p " Choose [1/2/3] [$default_choice]: " choice
+    echo -e " ${BLUE}[i]${NC}  Chon transport:"
+    echo "   1) WebSocket (on dinh / ho tro client rong nhat)"
+    echo "   2) xHTTP (transport HTTP hien dai)"
+    echo "   3) Ca WebSocket + xHTTP"
+    read -r -p " Chon [1/2/3] [$default_choice]: " choice
     choice="${choice:-$default_choice}"
     case "$choice" in
         1) TRANSPORT="websocket" ;;
         2) TRANSPORT="xhttp" ;;
         3) TRANSPORT="websocket,xhttp" ;;
-        *) warn "Invalid selection; keeping $TRANSPORT." ;;
+        *) warn "Lua chon khong hop le; giu lai $TRANSPORT." ;;
     esac
     if [[ "$TRANSPORT" == *xhttp* ]]; then
         echo "   xHTTP mode: 1) packet-up  2) stream-up  3) stream-one"
         case "$XHTTP_MODE" in stream-up) mode_choice=2 ;; stream-one) mode_choice=3 ;; *) mode_choice=1 ;; esac
-        read -r -p " Choose xHTTP mode [1/2/3] [$mode_choice]: " choice
+        read -r -p " Chon xHTTP mode [1/2/3] [$mode_choice]: " choice
         choice="${choice:-$mode_choice}"
-        case "$choice" in 1) XHTTP_MODE="packet-up" ;; 2) XHTTP_MODE="stream-up" ;; 3) XHTTP_MODE="stream-one" ;; *) warn "Invalid mode; keeping $XHTTP_MODE." ;; esac
+        case "$choice" in 1) XHTTP_MODE="packet-up" ;; 2) XHTTP_MODE="stream-up" ;; 3) XHTTP_MODE="stream-one" ;; *) warn "Mode khong hop le; giu lai $XHTTP_MODE." ;; esac
     fi
     if [[ "$TRANSPORT" == *xhttp* ]]; then
         ok "Transport: $TRANSPORT (xHTTP mode: $XHTTP_MODE)"
@@ -98,21 +98,28 @@ ask_transport(){
         ok "Transport: $TRANSPORT"
     fi
 }
+quick_tunnel_transport(){
+    TRANSPORT="websocket"
+    echo "   1) WebSocket"
+    warn "Luu y: Quick Tunnel (trycloudflare.com) khong ho tro xHTTP."
+    ok "Transport: WebSocket"
+}
+
 ask_port_mode(){
     local choice
     echo
-    echo -e " ${BLUE}[i]${NC}  Port selection for VLESS links:"
-    echo "   1) Port 80 only (NO TLS)"
-    echo "   2) Port 443 only (TLS)"
-    echo "   3) Both 80 + 443 (default)"
-    read -r -p " Choose [1/2/3]: " choice
+    echo -e " ${BLUE}[i]${NC}  Chon port cho link VLESS:"
+    echo "   1) Chi port 80 (KHONG TLS)"
+    echo "   2) Chi port 443 (TLS)"
+    echo "   3) Ca 80 + 443 (mac dinh)"
+    read -r -p " Chon [1/2/3]: " choice
     case "$choice" in
         1) PORT_MODE="80" ;;
         2) PORT_MODE="443" ;;
         3|"") PORT_MODE="both" ;;
         *) PORT_MODE="both" ;;
     esac
-    ok "Port mode: $PORT_MODE"
+    ok "Che do port: $PORT_MODE"
 }
 normalize_hub_url(){
     local value="$1"
@@ -129,31 +136,31 @@ normalize_hub_url(){
 ask_subscription_sync(){
     local subscription_url endpoint
     echo
-    echo -e " ${BLUE}[i]${NC}  Multi-VPS subscription sync (optional)"
-    echo "      Enter keeps current value; type - to disable sync."
-    echo "      Example: https://vless5gtiktok.takeshi.dev"
-    read -r -p " Subscription URL [${SUBSCRIPTION_SYNC_URL%/sync}]: " subscription_url
+    echo -e " ${BLUE}[i]${NC}  Dong bo subscription nhieu VPS (tuy chon)"
+    echo "      Enter de giu gia tri hien tai; nhap - de tat dong bo."
+    echo "      Vi du: https://vless5gtiktok.takeshi.dev"
+    read -r -p " URL subscription [${SUBSCRIPTION_SYNC_URL%/sync}]: " subscription_url
     if [ "$subscription_url" = "-" ]; then
         SUBSCRIPTION_SYNC_URL=""
         SUBSCRIPTION_SYNC_TOKEN=""
         SUBSCRIPTION_NODE_ID=""
-        info "Subscription sync disabled for this VPS."
+        info "Da tat dong bo subscription cho VPS nay."
     elif [ -n "$subscription_url" ] || [ -n "$SUBSCRIPTION_SYNC_URL" ]; then
         if [ -n "$subscription_url" ]; then
             endpoint="$(normalize_hub_url "$subscription_url")"
             case "$endpoint" in
                 https://*/sync|http://*/sync) SUBSCRIPTION_SYNC_URL="$endpoint" ;;
-                *) err "Invalid subscription URL."; return 1 ;;
+                *) err "URL subscription khong hop le."; return 1 ;;
             esac
         fi
-        SUBSCRIPTION_NODE_ID="$(ask_val "Node ID (unique: vps-jp-1)" "${SUBSCRIPTION_NODE_ID:-}")"
+        SUBSCRIPTION_NODE_ID="$(ask_val "Node ID (duy nhat: vps-jp-1)" "${SUBSCRIPTION_NODE_ID:-}")"
         SUBSCRIPTION_SYNC_TOKEN="$(ask_val "Hub sync token" "${SUBSCRIPTION_SYNC_TOKEN:-}")"
-        [ -z "$SUBSCRIPTION_NODE_ID" ] && { err "Node ID is required when sync is enabled."; return 1; }
-        [ -z "$SUBSCRIPTION_SYNC_TOKEN" ] && { err "Hub token is required when sync is enabled."; return 1; }
+        [ -z "$SUBSCRIPTION_NODE_ID" ] && { err "Can Node ID khi bat dong bo."; return 1; }
+        [ -z "$SUBSCRIPTION_SYNC_TOKEN" ] && { err "Can Hub token khi bat dong bo."; return 1; }
         ok "Subscription: ${SUBSCRIPTION_SYNC_URL%/sync}"
-        ok "This VPS will sync as: $SUBSCRIPTION_NODE_ID"
+        ok "VPS nay se dong bo voi Node ID: $SUBSCRIPTION_NODE_ID"
     else
-        info "Subscription sync disabled for this VPS."
+        info "Da tat dong bo subscription cho VPS nay."
     fi
 }
 
@@ -181,28 +188,31 @@ termux_bootstrap(){
     echo -e " ${GREEN}  Ban dang chay server tren Termux!${NC}"
     echo -e " ${GREEN}========================================${NC}"
     echo
-    info "Checking Termux packages..."
-    if ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
-        info "Installing python, pip, build tools and git..."
-        if ! pkg install -y python python-pip make pkg-config git; then
-            err "Termux package install failed. Run 'termux-change-repo', select a working mirror, then run 'pkg update && pkg upgrade -y' and retry."
+    if ! command -v python3 >/dev/null 2>&1; then
+        info "Dang cai Python..."
+        if ! pkg install -y python; then
+            err "Cai Python that bai. Hay chay 'termux-change-repo', chon mirror hoat dong, sau do thu lai."
             return 1
         fi
     fi
-    if ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1 || ! python3 -m pip --version >/dev/null 2>&1; then
-        err "Python, pip, or git is still unavailable. Fix the Termux mirror with 'termux-change-repo' and retry."
+    if ! python3 -m pip --version >/dev/null 2>&1; then
+        err "Python pip chua san sang. Hay chay: pkg install python"
         return 1
     fi
-    ok "Termux packages ready."
+    ok "Python Termux san sang."
 }
-
 # ==================== Python bootstrap ====================
 detect_python(){
+    if $IS_TERMUX; then
+        if command -v python3 >/dev/null 2>&1; then echo python3; return; fi
+        err "Khong tim thay Python 3. Hay chay: pkg install python"
+        return
+    fi
     if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
         if "$SCRIPT_DIR/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
             echo "$SCRIPT_DIR/.venv/bin/python"; return
         fi
-        warn "Broken .venv (no pip). Removing..."
+        warn ".venv bi loi (khong co pip). Dang xoa..."
         rm -rf "$SCRIPT_DIR/.venv"
     fi
     if command -v python3 >/dev/null 2>&1; then echo python3; return; fi
@@ -211,7 +221,7 @@ detect_python(){
             echo python; return
         fi
     fi
-    if $IS_TERMUX; then err "Python 3 not found. Run: pkg install python python-pip"; else err "Python 3 not found. Install: sudo apt install python3 python3-venv python3-pip"; fi
+    err "Khong tim thay Python 3. Hay cai: sudo apt install python3 python3-venv python3-pip"
 }
 
 install_venv_package(){
@@ -219,77 +229,75 @@ install_venv_package(){
     command -v apt-get >/dev/null 2>&1 || return 1
     local pyver
     pyver="$("$py" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3")"
-    info "Auto-installing python${pyver}-venv python3-pip via apt..."
+    info "Dang tu cai python${pyver}-venv python3-pip qua apt..."
     run_as_root apt-get update -qq 2>/dev/null
     run_as_root apt-get install -y -qq "python${pyver}-venv" python3-pip 2>&1 | tail -3
 }
 
 ensure_python_deps(){
     local py="$1"
-    if "$py" -c "import dotenv, requests, zstandard" 2>/dev/null; then return 0; fi
-    warn "Missing Python deps. Installing..."
+    if "$py" -c "import dotenv, requests" 2>/dev/null; then return 0; fi
+    warn "Thieu Python dependencies. Dang cai..."
 
-    # Termux ships pip with Python and does not use Debian's python3-venv/
-    # sudo/apt workflow. Keep packages in Termux's user environment.
+    # Termux chay bang Python he thong, khong dung .venv, apt hay sudo.
     if $IS_TERMUX; then
-        if "$py" -m pip install --user -q python-dotenv requests zstandard; then
-            "$py" -c "import dotenv, requests, zstandard" 2>/dev/null && { ok "Termux Python deps installed."; return 0; }
+        if "$py" -m pip install --user -q python-dotenv requests; then
+            "$py" -c "import dotenv, requests" 2>/dev/null && { ok "Da cai dependencies can thiet."; return 0; }
         fi
-        err "Failed to install Termux Python deps. Check the selected mirror/network, run 'pkg update', then retry."
+        err "Cai dependencies can thiet that bai. Kiem tra ket noi mang roi thu lai."
         return 1
     fi
-
-    # If in a venv already
+    # Neu dang o trong venv
     if "$py" -c 'import sys; sys.exit(0 if hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix) else 1)' 2>/dev/null; then
-        if "$py" -m pip install -q python-dotenv requests zstandard 2>&1 | tail -3; then
-            "$py" -c "import dotenv, requests, zstandard" 2>/dev/null && { ok "Deps installed."; return 0; }
+        if "$py" -m pip install -q python-dotenv requests 2>&1 | tail -3; then
+            "$py" -c "import dotenv, requests" 2>/dev/null && { ok "Deps installed."; return 0; }
         fi
         if [[ "$py" = "$SCRIPT_DIR/.venv/"* ]]; then
-            warn "Broken .venv. Recreating..."
+            warn ".venv bi loi. Dang tao lai..."
             rm -rf "$SCRIPT_DIR/.venv"
             py="$(command -v python3 2>/dev/null || command -v python 2>/dev/null)"
-            [ -z "$py" ] && { err "No system Python3."; return 1; }
+            [ -z "$py" ] && { err "Khong co Python3 he thong."; return 1; }
         else
-            err "pip failed in external venv."; return 1
+            err "pip that bai trong venv ben ngoai."; return 1
         fi
     fi
 
     # pip --user
-    if "$py" -m pip install --user -q python-dotenv requests zstandard 2>/dev/null; then
-        "$py" -c "import dotenv, requests, zstandard" 2>/dev/null && { ok "Deps installed (--user)."; return 0; }
+    if "$py" -m pip install --user -q python-dotenv requests 2>/dev/null; then
+        "$py" -c "import dotenv, requests" 2>/dev/null && { ok "Da cai dependencies (--user)."; return 0; }
     fi
     # --break-system-packages
-    if "$py" -m pip install --break-system-packages -q python-dotenv requests zstandard 2>/dev/null; then
-        "$py" -c "import dotenv, requests, zstandard" 2>/dev/null && { ok "Deps installed."; return 0; }
+    if "$py" -m pip install --break-system-packages -q python-dotenv requests 2>/dev/null; then
+        "$py" -c "import dotenv, requests" 2>/dev/null && { ok "Deps installed."; return 0; }
     fi
 
-    # Create .venv
-    info "Creating .venv..."
+    # Tao .venv
+    info "Dang tao .venv..."
     rm -rf "$SCRIPT_DIR/.venv"
     if ! "$py" -m venv "$SCRIPT_DIR/.venv" 2>/dev/null || [ ! -x "$SCRIPT_DIR/.venv/bin/python" ]; then
         install_venv_package "$py"
         rm -rf "$SCRIPT_DIR/.venv"
         "$py" -m venv "$SCRIPT_DIR/.venv" 2>/dev/null
     fi
-    [ -x "$SCRIPT_DIR/.venv/bin/python" ] || { err "Failed to create .venv."; return 1; }
+    [ -x "$SCRIPT_DIR/.venv/bin/python" ] || { err "Tao .venv that bai."; return 1; }
     local venv_py="$SCRIPT_DIR/.venv/bin/python"
-    "$venv_py" -m pip install -q python-dotenv requests zstandard 2>&1 | tail -3
-    if "$venv_py" -c "import dotenv, requests, zstandard" 2>/dev/null; then
-        ok "Deps installed into .venv/."
+    "$venv_py" -m pip install -q python-dotenv requests 2>&1 | tail -3
+    if "$venv_py" -c "import dotenv, requests" 2>/dev/null; then
+        ok "Da cai dependencies vao .venv/."
         PYBIN="$venv_py"; return 0
     fi
-    err "Failed to install deps."; return 1
+    err "Cai dependencies that bai."; return 1
 }
 
 prepare_python(){
     PYBIN="$(detect_python)"
     [ -z "$PYBIN" ] && return 1
     ensure_python_deps "$PYBIN" || return 1
-    # Resolve absolute
+    # Lay duong dan tuyet doi
     if [[ "$PYBIN" = /* ]]; then PYBIN_ABS="$PYBIN"
     else PYBIN_ABS="$(command -v "$PYBIN" 2>/dev/null)"; fi
     PYBIN_ABS="$(readlink -f "$PYBIN_ABS" 2>/dev/null || echo "$PYBIN_ABS")"
-    ok "Python ready: $PYBIN_ABS"
+    ok "Python san sang: $PYBIN_ABS"
 }
 
 # ==================== .env ====================
@@ -304,7 +312,7 @@ write_env(){
         echo "PORT_MODE=$PORT_MODE"
         echo "SUBSCRIPTION_SYNC_URL=$SUBSCRIPTION_SYNC_URL"; echo "SUBSCRIPTION_SYNC_TOKEN=$SUBSCRIPTION_SYNC_TOKEN"; echo "SUBSCRIPTION_NODE_ID=$SUBSCRIPTION_NODE_ID"
     } > .env
-    ok "Written .env (RUN_MODE=$RUN_MODE)"
+    ok "Da ghi .env (RUN_MODE=$RUN_MODE)"
 }
 
 load_existing(){
@@ -323,21 +331,21 @@ load_existing(){
 # ==================== Systemd ====================
 install_service(){
     if ! command -v systemctl >/dev/null 2>&1; then
-        err "systemd not available."; return 1
+        err "Khong co systemd."; return 1
     fi
     if [ "$(id -u)" != "0" ] && ! command -v sudo >/dev/null 2>&1; then
-        err "Need root or sudo."; return 1
+        err "Can quyen root hoac sudo."; return 1
     fi
-    [ -f .env ] || { err "No .env found."; return 1; }
+    [ -f .env ] || { err "Khong tim thay .env."; return 1; }
     prepare_python || return 1
 
-    # Stop old if running
+    # Dung service cu neu dang chay
     systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null && run_as_root systemctl stop "$SERVICE_NAME"
 
-    info "Installing systemd service: $SERVICE_NAME"
+    info "Dang cai systemd service: $SERVICE_NAME"
     run_as_root tee "$SERVICE_FILE" >/dev/null <<UNIT
 [Unit]
-Description=Xray VLESS-WS Server
+Description=May chu Xray VLESS-WS
 After=network-online.target
 Wants=network-online.target
 
@@ -358,43 +366,43 @@ UNIT
     run_as_root systemctl daemon-reload
     run_as_root systemctl enable "$SERVICE_NAME" 2>/dev/null
     run_as_root systemctl start "$SERVICE_NAME"
-    ok "Service started. Waiting for VLESS links..."
+    ok "Service da chay. Dang doi link VLESS..."
 }
 
 wait_and_show_links(){
-    # Wait for frp_info.config to be written by main.py
+    # Doi main.py ghi frp_info.config
     local tries=0
     while [ $tries -lt 30 ]; do
         if [ -f "$SCRIPT_DIR/frp_info.config" ] && [ -s "$SCRIPT_DIR/frp_info.config" ]; then
-            sleep 2  # let main.py finish writing
+            sleep 2  # cho main.py ghi xong
             echo
-            header "VLESS Links"
+            header "Link VLESS"
             echo
             cat "$SCRIPT_DIR/frp_info.config"
             echo
-            ok "Copy any link above into v2rayNG / Shadowrocket."
+            ok "Sao chep mot link ben tren vao v2rayNG / Shadowrocket."
             if [ "$RUN_MODE" = "quick_tunnel" ]; then
-                warn "Quick Tunnel hostname changes on every restart."
-                info "Check new links after restart: cat $SCRIPT_DIR/frp_info.config"
+                warn "Hostname Quick Tunnel thay doi sau moi lan khoi dong lai."
+                info "Xem link moi sau khi khoi dong lai: cat $SCRIPT_DIR/frp_info.config"
             fi
             return 0
         fi
         sleep 1
         tries=$((tries + 1))
     done
-    err "Timed out waiting for VLESS links."
-    info "Check service: journalctl -u $SERVICE_NAME -e --no-pager -n 30"
+    err "Het thoi gian doi link VLESS."
+    info "Kiem tra service: journalctl -u $SERVICE_NAME -e --no-pager -n 30"
     return 1
 }
 
-# ==================== Start server ====================
+# ==================== Khoi dong server ====================
 start_server(){
     rm -f "$SCRIPT_DIR/frp_info.config"
     if $IS_TERMUX; then
         prepare_python || return 1
         echo
-        info "Starting server directly (Termux mode)..."
-        info "Press Ctrl+C to stop the server."
+        info "Dang chay server truc tiep (che do Termux)..."
+        info "Nhan Ctrl+C de dung server."
         echo
         "$PYBIN_ABS" "$SCRIPT_DIR/main.py"
     else
@@ -403,76 +411,75 @@ start_server(){
     fi
 }
 
-# ==================== Setup modes ====================
+# ==================== Cac che do cai dat ====================
 quick_mode(){
     header "1. Quick Tunnel (trycloudflare.com)"
-    info "No domain required. Cloudflare gives a random hostname each run."
+    info "Khong can domain. Cloudflare cap hostname ngau nhien sau moi lan chay."
     load_existing
 
-    setup_step "1/7" "Server identity"
+    setup_step "1/7" "Thong tin server"
     UUID="$(ask_val "VLESS UUID" "${UUID:-$(uuid_gen)}")"
 
     setup_step "2/7" "Fake SNI"
     ask_fake_sni
 
-    setup_step "3/7" "Transport endpoint"
-    WS_PATH="$(ask_val "WebSocket/xHTTP path" "${WS_PATH:-$DEF_WS_PATH}")"
-    TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
-    ask_transport
+    setup_step "3/7" "Duong dan WebSocket"
+    WS_PATH="$(ask_val "Duong dan WebSocket" "${WS_PATH:-$DEF_WS_PATH}")"
+    quick_tunnel_transport
 
-    setup_step "4/7" "VLESS link ports"
+    setup_step "4/7" "Port link VLESS"
     RUN_MODE="quick_tunnel"; PORT="$DEF_PORT_QUICK"
     [ -n "$WS_HOST" ] && [ "$WS_HOST" != "$DEF_WS_HOST" ] && CUSTOM_DOMAIN="$WS_HOST"
     WS_HOST="$DEF_WS_HOST"
     ask_port_mode
 
-    setup_step "5/7" "Optional subscription hub"
+    setup_step "5/7" "Subscription Hub (tuy chon)"
     ask_subscription_sync || return 1
 
-    setup_step "6/7" "Node location"
+    setup_step "6/7" "Vi tri node"
     ask_country
 
-    setup_step "7/7" "Save and start"
+    setup_step "7/7" "Luu va khoi dong"
     write_env
     start_server
 }
 
 named_mode(){
-    header "2. Named Cloudflare Tunnel + custom domain"
-    info "Requires Cloudflare Zero Trust."
-    echo -e " ${CYAN}Before continuing in Zero Trust:${NC}"
-    echo "   1. Networks -> Tunnels -> Create -> Cloudflared -> copy token."
+    header "2. Named Cloudflare Tunnel + domain rieng"
+    info "Can Cloudflare Zero Trust."
+    echo -e " ${CYAN}Truoc khi tiep tuc trong Zero Trust:${NC}"
+    echo "   1. Networks -> Tunnels -> Create -> Cloudflared -> sao chep token."
     echo -e "   2. Public Hostname -> Service = ${GREEN}http://127.0.0.1:8888${NC}"
     echo
-    read -r -p " Press Enter when ready..." _
+    read -r -p " Nhan Enter khi san sang..." _
     load_existing
 
-    setup_step "1/7" "Domain and tunnel credentials"
+    setup_step "1/7" "Domain va tunnel credentials"
     local def_host="${WS_HOST:-}"
     [ "$def_host" = "trycloudflare.com" ] || [ -z "$def_host" ] && def_host="${CUSTOM_DOMAIN:-}"
-    WS_HOST="$(ask_val "Domain (e.g. vless.example.com)" "$def_host")"
+    WS_HOST="$(ask_val "Domain (vi du: vless.example.com)" "$def_host")"
     TUNNEL_TOKEN="$(ask_val "Tunnel connector token" "${TUNNEL_TOKEN:-}")"
-    [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Domain required."; return 1; }
-    [ -z "$TUNNEL_TOKEN" ] && { err "Token required."; return 1; }
+    [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Can domain."; return 1; }
+    [ -z "$TUNNEL_TOKEN" ] && { err "Can token."; return 1; }
     RUN_MODE="named_tunnel"; PORT="$DEF_PORT_NAMED"; UUID="${UUID:-$(uuid_gen)}"
 
     setup_step "2/7" "Fake SNI"
     ask_fake_sni
 
-    setup_step "3/7" "Transport endpoint"
+    setup_step "3/7" "Diem cuoi transport"
     WS_PATH="${WS_PATH:-$DEF_WS_PATH}"; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_transport
 
-    setup_step "4/7" "VLESS link ports"
+    setup_step "4/7" "Port link VLESS"
     ask_port_mode
 
-    setup_step "5/7" "Optional subscription hub"
+    setup_step "5/7" "Subscription Hub (tuy chon)"
     ask_subscription_sync || return 1
 
-    setup_step "6/7" "Node location"
+    setup_step "6/7" "Vi tri node"
     ask_country
 
-    setup_step "7/7" "Save and start"
+    setup_step "7/7" "Luu va khoi dong"
     CUSTOM_DOMAIN="$WS_HOST"
     write_env
     start_server
@@ -480,124 +487,124 @@ named_mode(){
 
 direct_mode(){
     header "3. Direct Cloudflare proxied DNS -> VPS"
-    info "No cloudflared. Cloudflare forwards to port 80."
-    echo -e " ${CYAN}Before continuing in Cloudflare:${NC}"
+    info "Khong dung cloudflared. Cloudflare chuyen tiep vao port 80."
+    echo -e " ${CYAN}Truoc khi tiep tuc trong Cloudflare:${NC}"
     echo -e "   1. ${GREEN}vless.example.com -> A -> <VPS IP>${NC}, proxy ${GREEN}ON${NC} (orange cloud)"
     echo -e "   2. SSL/TLS -> ${GREEN}Flexible${NC}"
-    echo -e "   3. Allow inbound TCP ${GREEN}80${NC} from Cloudflare IPs"
+    echo -e "   3. Cho phep TCP inbound ${GREEN}80${NC} tu IP Cloudflare"
     echo
-    read -r -p " Press Enter when ready..." _
+    read -r -p " Nhan Enter khi san sang..." _
     load_existing
 
-    setup_step "1/7" "Domain and origin listener"
+    setup_step "1/7" "Domain va origin listener"
     local def_host="${WS_HOST:-}"
     [ "$def_host" = "trycloudflare.com" ] || [ -z "$def_host" ] && def_host="${CUSTOM_DOMAIN:-}"
     WS_HOST="$(ask_val "Domain" "$def_host")"
     PORT="$(ask_val "Origin listen address:port" "$DEF_PORT_DIRECT")"
-    [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Domain required."; return 1; }
+    [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Can domain."; return 1; }
     RUN_MODE="direct"; UUID="${UUID:-$(uuid_gen)}"
 
     setup_step "2/7" "Fake SNI"
     ask_fake_sni
 
-    setup_step "3/7" "Transport endpoint"
+    setup_step "3/7" "Diem cuoi transport"
     WS_PATH="${WS_PATH:-$DEF_WS_PATH}"; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_transport
 
-    setup_step "4/7" "VLESS link ports"
+    setup_step "4/7" "Port link VLESS"
     ask_port_mode
 
-    setup_step "5/7" "Optional subscription hub"
+    setup_step "5/7" "Subscription Hub (tuy chon)"
     ask_subscription_sync || return 1
 
-    setup_step "6/7" "Node location"
+    setup_step "6/7" "Vi tri node"
     ask_country
 
-    setup_step "7/7" "Save and start"
+    setup_step "7/7" "Luu va khoi dong"
     CUSTOM_DOMAIN="$WS_HOST"
     write_env
     start_server
 }
-# ==================== Service manager ====================
+# ==================== Quan ly Service ====================
 service_manager(){
     if $IS_TERMUX; then
-        warn "Service Manager is not available on Termux."
-        info "On Termux, run a setup mode (1/2/3) to start the server directly."
+        warn "Quan ly Service khong ho tro tren Termux."
+        info "Tren Termux, chay mot setup mode (1/2/3) de khoi dong server truc tiep."
         return 1
     fi
     if ! command -v systemctl >/dev/null 2>&1; then
-        err "systemd not available."; return 1
+        err "Khong co systemd."; return 1
     fi
     while true; do
-        header "Service Manager"
+        header "Quan ly Service"
         local st
         if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-            st="${GREEN}● Running${NC}"
+            st="${GREEN}● Dang chay${NC}"
         elif [ -f "$SERVICE_FILE" ]; then
-            st="${YELLOW}● Stopped${NC}"
+            st="${YELLOW}● Da dung${NC}"
         else
-            st="${RED}● Not installed${NC}"
+            st="${RED}● Chua cai${NC}"
         fi
         echo -e "  Service : ${CYAN}${SERVICE_NAME}${NC}    $st"
         [ -f .env ] && echo -e "  Mode    : ${CYAN}$(env_get RUN_MODE)${NC}  →  $(env_get WS_HOST)"
         echo
-        echo " 1. Start"
-        echo " 2. Stop"
-        echo " 3. Restart"
-        echo " 4. View logs (live)"
-        echo " 5. Status"
-        echo " 6. Show VLESS links"
-        echo " 7. Reinstall service"
-        echo " 8. Remove service"
-        echo " 0. Back"
-        read -r -p " Choice [0-8]: " c
+        echo " 1. Khoi dong"
+        echo " 2. Dung"
+        echo " 3. Khoi dong lai"
+        echo " 4. Xem log (truc tiep)"
+        echo " 5. Trang thai"
+        echo " 6. Xem link VLESS"
+        echo " 7. Cai lai service"
+        echo " 8. Xoa service"
+        echo " 0. Quay lai"
+        read -r -p " Chon [0-8]: " c
         case "$c" in
-            1) run_as_root systemctl start "$SERVICE_NAME" 2>/dev/null && ok "Started." || err "Failed." ;;
-            2) run_as_root systemctl stop "$SERVICE_NAME" 2>/dev/null && ok "Stopped." || err "Not running." ;;
+            1) run_as_root systemctl start "$SERVICE_NAME" 2>/dev/null && ok "Da khoi dong." || err "That bai." ;;
+            2) run_as_root systemctl stop "$SERVICE_NAME" 2>/dev/null && ok "Da dung." || err "Khong dang chay." ;;
             3) run_as_root systemctl restart "$SERVICE_NAME" 2>/dev/null; sleep 2
-               systemctl is-active --quiet "$SERVICE_NAME" && ok "Restarted." || err "Failed." ;;
-            4) info "Ctrl+C to stop watching."; echo; journalctl -u "$SERVICE_NAME" -f --no-pager -n 50 ;;
-            5) systemctl status "$SERVICE_NAME" --no-pager -l 2>/dev/null || info "Not installed." ;;
+               systemctl is-active --quiet "$SERVICE_NAME" && ok "Da khoi dong lai." || err "That bai." ;;
+            4) info "Nhan Ctrl+C de dung xem log."; echo; journalctl -u "$SERVICE_NAME" -f --no-pager -n 50 ;;
+            5) systemctl status "$SERVICE_NAME" --no-pager -l 2>/dev/null || info "Chua cai." ;;
             6) if [ -f "$SCRIPT_DIR/frp_info.config" ] && [ -s "$SCRIPT_DIR/frp_info.config" ]; then
-                   header "VLESS Links"; echo; cat "$SCRIPT_DIR/frp_info.config"; echo
-               else info "No links yet. Start the service first."; fi ;;
+                   header "Link VLESS"; echo; cat "$SCRIPT_DIR/frp_info.config"; echo
+               else info "Chua co link. Hay khoi dong service truoc."; fi ;;
             7) install_service ;;
             8) if [ -f "$SERVICE_FILE" ]; then
                    systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null && run_as_root systemctl stop "$SERVICE_NAME"
                    run_as_root systemctl disable "$SERVICE_NAME" 2>/dev/null
                    run_as_root rm -f "$SERVICE_FILE"
                    run_as_root systemctl daemon-reload
-                   ok "Service removed."
-               else info "Not installed."; fi ;;
+                   ok "Da xoa service."
+               else info "Chua cai."; fi ;;
             0) return ;;
-            *) err "Invalid choice" ;;
+            *) err "Lua chon khong hop le" ;;
         esac
         pause_next
     done
 }
 
-# ==================== Uninstall ====================
+# ==================== Go cai dat ====================
 uninstall_all(){
-    header "Uninstall"
-    info "Removes ONLY files this project downloaded/generated."
-    echo -e " ${YELLOW}Will remove:${NC}"
+    header "Go cai dat"
+    info "CHI xoa file do project nay tai ve/tao ra."
+    echo -e " ${YELLOW}Se xoa:${NC}"
     echo "   Binaries: xray, cloudflared, wgcf-cli"
-    echo "   Generated: .env, config.json, wgcf.json, frp_info.*, config.yml"
-    echo "   Folders: xray_bin, wgcf_bin, __pycache__, .venv"
+    echo "   Tao ra: .env, config.json, wgcf.json, frp_info.*, config.yml"
+    echo "   Thu muc: xray_bin, wgcf_bin, __pycache__, .venv"
     [ -f "$SERVICE_FILE" ] && echo -e "   Service: ${CYAN}$SERVICE_NAME${NC}"
     echo
-    info "Source files are NEVER touched."
+    info "KHONG BAO GIO xoa file source."
     echo
-    ask_yes_no "Proceed?" "n" || { info "Canceled."; return; }
-    # Service (skip on Termux)
+    ask_yes_no "Tiep tuc?" "n" || { info "Da huy."; return; }
+    # Service (bo qua tren Termux)
     if ! $IS_TERMUX && [ -f "$SERVICE_FILE" ]; then
         systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null && run_as_root systemctl stop "$SERVICE_NAME"
         run_as_root systemctl disable "$SERVICE_NAME" 2>/dev/null
         run_as_root rm -f "$SERVICE_FILE"
         run_as_root systemctl daemon-reload
-        ok "Service removed."
+        ok "Da xoa service."
     fi
-    # Files
+    # File
     local removed=0
     for f in xray xray.exe cloudflared cloudflared.exe wgcf-cli wgcf-cli.exe \
              .env config.json wgcf.json wgcf.xray.json frp_info.json frp_info.config \
@@ -607,30 +614,30 @@ uninstall_all(){
     for d in xray_bin wgcf_bin __pycache__ .venv; do
         [ -d "$d" ] && rm -rf -- "$d" && { ok "Removed $d/"; removed=1; }
     done
-    [ "$removed" = "0" ] && info "Already clean." || ok "Done."
+    [ "$removed" = "0" ] && info "Da sach." || ok "Hoan tat."
 }
 
-# ==================== Main menu ====================
-termux_bootstrap
+# ==================== Menu chinh ====================
+termux_bootstrap || { err "Khong the chuan bi Termux. Hay sua package/mirror roi chay lai."; exit 1; }
 while true; do
-    header "Xray VLESS-WS Server"
-    $IS_TERMUX && echo -e "  ${GREEN}[Termux]${NC} Direct mode (no systemd)"
-    # Show current status
+    header "May chu Xray VLESS-WS"
+    $IS_TERMUX && echo -e "  ${GREEN}[Termux]${NC} Che do truc tiep (khong systemd)"
+    # Hien trang thai hien tai
     if ! $IS_TERMUX && command -v systemctl >/dev/null 2>&1 && [ -f "$SERVICE_FILE" ]; then
         if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-            echo -e "  ${GREEN}● Service running${NC}  $(env_get RUN_MODE) → $(env_get WS_HOST)"
+            echo -e "  ${GREEN}● Service dang chay${NC}  $(env_get RUN_MODE) → $(env_get WS_HOST)"
         else
-            echo -e "  ${YELLOW}● Service stopped${NC}"
+            echo -e "  ${YELLOW}● Service da dung${NC}"
         fi
         echo
     fi
-    echo " 1. Quick Tunnel (trycloudflare.com) - no domain needed"
-    echo " 2. Named Cloudflare Tunnel + custom domain"
+    echo " 1. Quick Tunnel (trycloudflare.com) - khong can domain"
+    echo " 2. Named Cloudflare Tunnel + domain rieng"
     echo " 3. Direct Cloudflare proxied DNS -> VPS"
-    echo " 4. Service Manager (start/stop/logs/status)"
-    echo " 5. Uninstall"
-    echo " 0. Exit"
-    read -r -p " Choice [0-5]: " MENU_CHOICE
+    echo " 4. Quan ly Service (khoi dong/dung/log/trang thai)"
+    echo " 5. Go cai dat"
+    echo " 0. Thoat"
+    read -r -p " Chon [0-5]: " MENU_CHOICE
     case "$MENU_CHOICE" in
         1) quick_mode ;;
         2) named_mode ;;
@@ -638,7 +645,7 @@ while true; do
         4) service_manager ;;
         5) uninstall_all ;;
         0) exit 0 ;;
-        *) err "Invalid choice" ;;
+        *) err "Lua chon khong hop le" ;;
     esac
     pause_next
 done

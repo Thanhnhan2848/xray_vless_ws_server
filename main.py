@@ -16,7 +16,7 @@ import importlib
 
 xray_downloader = importlib.import_module("download-xray")
 cloudflared_downloader = importlib.import_module("download-cloudflared")
-wgcf_downloader = importlib.import_module("download-wgcf")
+# WARP downloader is imported lazily only when WARP is enabled.
 
 def main():
     # =========================================
@@ -201,7 +201,7 @@ def main():
     if ENABLE_WARP:
         if not os.path.exists(WGCF_BIN):
             print(f"[ERROR] Unable to find WGCF path: {WGCF_BIN}")
-            wgcf_downloader.install_wgcf()
+            importlib.import_module("download-wgcf").install_wgcf()
 
         if not os.path.exists("wgcf.xray.json"):
             print("[*] Generating WARP account...")
