@@ -76,11 +76,22 @@ def main():
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
     DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
-    # TRANSPORT: "websocket" or "xhttp"
-    TRANSPORT = get_os_env("TRANSPORT").strip().lower()
-    if TRANSPORT not in ("websocket", "xhttp"):
-        print(f"[!] Unknown TRANSPORT '{TRANSPORT}', falling back to 'websocket'.")
-        TRANSPORT = "websocket"
+    # TRANSPORT: "websocket", "xhttp", or "websocket,xhttp" to run both at once.
+    _transport_raw = get_os_env("TRANSPORT").strip().lower()
+    _seen = set()
+    TRANSPORTS = []
+    for t in _transport_raw.split(","):
+        t = t.strip()
+        if t in ("websocket", "xhttp") and t not in _seen:
+            TRANSPORTS.append(t)
+            _seen.add(t)
+    if not TRANSPORTS:
+        print(f"[!] Unknown TRANSPORT '{_transport_raw}', falling back to 'websocket'.")
+        TRANSPORTS = ["websocket"]
+
+    DUAL_TRANSPORT = len(TRANSPORTS) > 1
+    # Kept for any code/log paths that only care about a single-transport label.
+    TRANSPORT = "+".join(TRANSPORTS)
 
     # XHTTP_MODE: only relevant when TRANSPORT=xhttp.
     # "packet-up" is the most CDN-compatible mode and is recommended when
@@ -172,8 +183,8 @@ def main():
     # =========================================
     # VLESS-WS CONFIG GENERATOR
     # =========================================
-    def build_stream_settings():
-        if TRANSPORT == "xhttp":
+    def build_stream_settings(transport):
+        if transport == "xhttp":
             return {
                 "network": "xhttp",
                 "security": "none",
@@ -191,28 +202,140 @@ def main():
             }
         }
 
+    # For dual-transport mode, each real inbound port cannot bind two
+    # different networks (ws vs xhttp) at once, so each transport gets its
+    # own internal-only port on 127.0.0.1, and a lightweight TCP demux
+    # listens on the original public-facing port. The demux peeks at the
+    # start of each connection: requests with "Upgrade: websocket" go to
+    # the ws inbound, everything else (plain HTTP used by xhttp) goes to
+    # the xhttp inbound. This keeps a single external port/path for both
+    # transports, so cloudflared/the Worker need no awareness of this split.
+    WS_INTERNAL_OFFSET = 20000
+    XHTTP_INTERNAL_OFFSET = 30000
+
+    def internal_port_for(base_port, transport):
+        offset = WS_INTERNAL_OFFSET if transport == "websocket" else XHTTP_INTERNAL_OFFSET
+        return base_port + offset
+
+    def peek_is_websocket(conn, timeout=3.0):
+        conn.settimeout(timeout)
+        try:
+            data = conn.recv(8192, socket.MSG_PEEK)
+        except Exception:
+            data = b""
+        finally:
+            conn.settimeout(None)
+        if not data:
+            return False
+        header_blob = data.decode("latin-1", errors="ignore").lower()
+        return "upgrade: websocket" in header_blob
+
+    def pipe_bytes(src, dst):
+        try:
+            while True:
+                chunk = src.recv(65536)
+                if not chunk:
+                    break
+                dst.sendall(chunk)
+        except Exception:
+            pass
+        finally:
+            try: src.shutdown(socket.SHUT_RD)
+            except: pass
+            try: dst.shutdown(socket.SHUT_WR)
+            except: pass
+
+    def handle_demux_conn(client_conn, ws_port, xhttp_port):
+        is_ws = peek_is_websocket(client_conn)
+        backend_port = ws_port if is_ws else xhttp_port
+        try:
+            backend_conn = socket.create_connection(("127.0.0.1", backend_port), timeout=5)
+        except Exception:
+            try: client_conn.close()
+            except: pass
+            return
+        threading.Thread(target=pipe_bytes, args=(client_conn, backend_conn), daemon=True).start()
+        threading.Thread(target=pipe_bytes, args=(backend_conn, client_conn), daemon=True).start()
+
+    def start_demux_server(listen_ip, listen_port, ws_port, xhttp_port):
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind((listen_ip if listen_ip != "0.0.0.0" else "", listen_port))
+        srv.listen(128)
+
+        def accept_loop():
+            while True:
+                try:
+                    conn, _addr = srv.accept()
+                except Exception:
+                    break
+                threading.Thread(target=handle_demux_conn, args=(conn, ws_port, xhttp_port), daemon=True).start()
+
+        threading.Thread(target=accept_loop, daemon=True).start()
+        print(f"[*] Dual-transport demux listening on {listen_ip}:{listen_port} -> ws:{ws_port} / xhttp:{xhttp_port}")
+        return srv
+
     def write_configs():
         inbounds = []
+        demux_servers = []
+
         for ip, port in inbound_ports:
-            inbounds.append({
-                "port": port,
-                "listen": ip,
-                "protocol": "vless",
-                "sniffing": {
-                    "enabled": True,
-                    "destOverride": ["http", "tls"]
-                },
-                "settings": {
-                    "clients": [
-                        {
-                            "id": UUID,
-                            "level": 0
-                        }
-                    ],
-                    "decryption": "none"
-                },
-                "streamSettings": build_stream_settings()
-            })
+            if DUAL_TRANSPORT:
+                ws_port = internal_port_for(port, "websocket")
+                xhttp_port = internal_port_for(port, "xhttp")
+
+                inbounds.append({
+                    "port": ws_port,
+                    "listen": "127.0.0.1",
+                    "protocol": "vless",
+                    "sniffing": {
+                        "enabled": True,
+                        "destOverride": ["http", "tls"]
+                    },
+                    "settings": {
+                        "clients": [{"id": UUID, "level": 0}],
+                        "decryption": "none"
+                    },
+                    "streamSettings": build_stream_settings("websocket")
+                })
+                inbounds.append({
+                    "port": xhttp_port,
+                    "listen": "127.0.0.1",
+                    "protocol": "vless",
+                    "sniffing": {
+                        "enabled": True,
+                        "destOverride": ["http", "tls"]
+                    },
+                    "settings": {
+                        "clients": [{"id": UUID, "level": 0}],
+                        "decryption": "none"
+                    },
+                    "streamSettings": build_stream_settings("xhttp")
+                })
+
+                # The demux itself owns the original public-facing port;
+                # started after Xray is up (see below), so just record intent here.
+                demux_servers.append((ip, port, ws_port, xhttp_port))
+            else:
+                inbounds.append({
+                    "port": port,
+                    "listen": ip,
+                    "protocol": "vless",
+                    "sniffing": {
+                        "enabled": True,
+                        "destOverride": ["http", "tls"]
+                    },
+                    "settings": {
+                        "clients": [
+                            {
+                                "id": UUID,
+                                "level": 0
+                            }
+                        ],
+                        "decryption": "none"
+                    },
+                    "streamSettings": build_stream_settings(TRANSPORTS[0])
+                })
 
         xray_config = {
             "log": {
@@ -240,7 +363,9 @@ def main():
         with open("config.json", "w", encoding="utf-8") as f: 
             json.dump(xray_config, f, indent=2)
 
-    write_configs()
+        return demux_servers
+
+    demux_servers = write_configs()
 
     print(f"[*] Launching XRAY with multi-port inbounds...")
     # Using 'run' with extra environment or fallback handling is ideal, 
@@ -253,6 +378,14 @@ def main():
         encoding='utf-8',
         errors='replace'
     )
+
+    if DUAL_TRANSPORT:
+        time.sleep(1)  # give xray a moment to bind its internal ports
+        for ip, port, ws_port, xhttp_port in demux_servers:
+            try:
+                start_demux_server(ip, port, ws_port, xhttp_port)
+            except Exception as e:
+                print(f"[!] Failed to start dual-transport demux on {ip}:{port}: {e}")
 
     def write_cloudflared_config():
         config_yml_content = (
@@ -384,10 +517,18 @@ def main():
 
             encoded_remark = urllib.parse.quote(remark, safe='')
 
-            payloads.extend([
-                f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS",
-                f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_remark}%20NO%20TLS"
-            ])
+            if DUAL_TRANSPORT:
+                payloads.extend([
+                    f"vless://{uuid_str}@{sni}:443?type=ws&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}#{encoded_remark}%20WS%20TLS",
+                    f"vless://{uuid_str}@{sni}:80?type=ws&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}#{encoded_remark}%20WS%20No%20TLS",
+                    f"vless://{uuid_str}@{sni}:443?type=xhttp&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}&mode={XHTTP_MODE}#{encoded_remark}%20XHTTP%20TLS",
+                    f"vless://{uuid_str}@{sni}:80?type=xhttp&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}&mode={XHTTP_MODE}#{encoded_remark}%20XHTTP%20No%20TLS",
+                ])
+            else:
+                payloads.extend([
+                    f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS",
+                    f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_remark}%20NO%20TLS"
+                ])
 
         print("\n" + "="*70)
         print(" CONNECTED TO CLOUDFLARE TUNNEL")
@@ -406,8 +547,8 @@ def main():
             "ip": get_public_url(),
             "wshost": tunnel_host, 
             "wspath": ws_path,
-            "transport": TRANSPORT,
-            "xhttp_mode": XHTTP_MODE if TRANSPORT == "xhttp" else None,
+            "transport": TRANSPORTS if DUAL_TRANSPORT else TRANSPORT,
+            "xhttp_mode": XHTTP_MODE if "xhttp" in TRANSPORTS else None,
             "start_time": START_TIME,
         }
 
