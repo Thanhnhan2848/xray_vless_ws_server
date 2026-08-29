@@ -29,6 +29,7 @@ def main():
         "WS_PATH": "/tiktok4g",
         "WS_HOST": "trycloudflare.com",
         "TRANSPORT": "websocket",
+        "XHTTP_MODE": "packet-up",
         "ENABLE_WARP": "false",
         "WEBHOOK_URL": "",
         "TUNNEL_TOKEN": ""
@@ -75,15 +76,19 @@ def main():
     ENABLE_WARP = get_os_env("ENABLE_WARP").lower() == "true"
     DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
-    # TRANSPORT: "websocket" only for now — xhttp is temporarily disabled
-    # (was unstable / needs more testing behind Cloudflare Tunnel).
+    # TRANSPORT: "websocket" or "xhttp"
     TRANSPORT = get_os_env("TRANSPORT").strip().lower()
-    if TRANSPORT == "xhttp":
-        print("[!] TRANSPORT=xhttp is temporarily disabled, falling back to 'websocket'.")
-        TRANSPORT = "websocket"
-    elif TRANSPORT != "websocket":
+    if TRANSPORT not in ("websocket", "xhttp"):
         print(f"[!] Unknown TRANSPORT '{TRANSPORT}', falling back to 'websocket'.")
         TRANSPORT = "websocket"
+
+    # XHTTP_MODE: only relevant when TRANSPORT=xhttp.
+    # "packet-up" is the most CDN-compatible mode and is recommended when
+    # routing traffic through Cloudflare (matches how the worker/tunnel forwards plain HTTP).
+    XHTTP_MODE = get_os_env("XHTTP_MODE").strip().lower()
+    if XHTTP_MODE not in ("packet-up", "stream-up", "stream-one"):
+        print(f"[!] Unknown XHTTP_MODE '{XHTTP_MODE}', falling back to 'packet-up'.")
+        XHTTP_MODE = "packet-up"
 
     # Parse multi-port configuration
     # Supported formats: "8888" (defaults to 0.0.0.0), "127.0.0.1:8888", "0.0.0.0:443,0.0.0.0:80"
@@ -168,6 +173,15 @@ def main():
     # VLESS-WS CONFIG GENERATOR
     # =========================================
     def build_stream_settings():
+        if TRANSPORT == "xhttp":
+            return {
+                "network": "xhttp",
+                "security": "none",
+                "xhttpSettings": {
+                    "path": WS_PATH,
+                    "mode": XHTTP_MODE
+                }
+            }
         return {
             "network": "ws",
             "security": "none",
@@ -348,8 +362,12 @@ def main():
         if WS_HOST and WS_HOST != "trycloudflare.com": 
             tunnel_host_info = WS_HOST
         
-        net_type = "ws"
-        mode_param = ""
+        if TRANSPORT == "xhttp":
+            net_type = "xhttp"
+            mode_param = f"&mode={XHTTP_MODE}"
+        else:
+            net_type = "ws"
+            mode_param = ""
 
         payloads = []
         sni_list = fake_sni.split(",");
@@ -389,6 +407,7 @@ def main():
             "wshost": tunnel_host, 
             "wspath": ws_path,
             "transport": TRANSPORT,
+            "xhttp_mode": XHTTP_MODE if TRANSPORT == "xhttp" else None,
             "start_time": START_TIME,
         }
 
