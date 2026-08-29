@@ -340,6 +340,34 @@ pre.code .s { color: var(--md-success); }
 
 /* ---------- Comparison table ---------- */
 .table-wrap { overflow-x: auto; margin: 14px 0; border-radius: var(--md-shape-md); border: 1px solid var(--md-outline-variant); }
+
+.speedtest-gallery {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin: 18px 0 6px;
+}
+.speedtest-gallery figure {
+    margin: 0;
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-md);
+    overflow: hidden;
+    background: var(--md-surface-1);
+}
+.speedtest-gallery img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+.speedtest-gallery figcaption {
+    padding: 10px 14px 12px;
+    font-size: 12.5px;
+    color: var(--md-on-surface-variant);
+    text-align: center;
+}
+@media (max-width: 560px) {
+    .speedtest-gallery { grid-template-columns: 1fr; }
+}
 table.compare { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 560px; }
 table.compare th, table.compare td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--md-outline-variant); }
 table.compare th { background: var(--md-surface-3); font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: var(--md-on-surface-variant); }
@@ -660,6 +688,18 @@ footer a { color: var(--md-on-surface-variant); }
             <span class="icon">⚡</span>
             <p data-i18n="transport_callout"><strong>Bottom line:</strong> WS is the proven legendary workhorse; xHTTP packet-up is the new standard — lower ping, higher throughput, better resilience against DPI. <code>main.py</code> supports both at once via <code>TRANSPORT=websocket,xhttp</code>.</p>
         </div>
+
+        <h4 data-i18n="speedtest_title">Real-World Speedtest</h4>
+        <div class="speedtest-gallery">
+            <figure>
+                <img src="images/vless_websocket_speedtest.jpg" alt="VLESS + WebSocket + TLS speedtest result">
+                <figcaption data-i18n="speedtest_ws_caption">VLESS + WebSocket + TLS — 166 Mbps down / 41.3 Mbps up</figcaption>
+            </figure>
+            <figure>
+                <img src="images/vless_xhttp_speedtest.jpg" alt="VLESS + xHTTP + TLS + ALPN H3 speedtest result">
+                <figcaption data-i18n="speedtest_xhttp_caption">VLESS + xHTTP + TLS + ALPN H3 — 183 Mbps down / 188 Mbps up</figcaption>
+            </figure>
+        </div>
     </section>
 
     <!-- 6. FEATURES -->
@@ -810,6 +850,9 @@ en: {
     row5_h: "Bandwidth", row5_ws: "Prone to congestion on large transfers", row5_x: "Higher & more stable",
     row6_h: "Stealth", row6_ws: "Easier for modern DPI to fingerprint", row6_x: "Harder to detect — looks like file upload traffic",
     transport_callout: "<strong>Bottom line:</strong> WS is the proven legendary workhorse; xHTTP packet-up is the new standard — lower ping, higher throughput, better resilience against DPI. <code>main.py</code> supports both at once via <code>TRANSPORT=websocket,xhttp</code>.",
+    speedtest_title: "Real-World Speedtest",
+    speedtest_ws_caption: "VLESS + WebSocket + TLS — 166 Mbps down / 41.3 Mbps up",
+    speedtest_xhttp_caption: "VLESS + xHTTP + TLS + ALPN H3 — 183 Mbps down / 188 Mbps up",
     features_title: "Script Features",
     feat1_h: "Dynamic Environment Orchestration", feat1_b: "Automated verification and generation of localized <code>.env</code> dependencies.",
     feat2_h: "Quick & Named Tunnels", feat2_b: "Auto-detects whether to launch an ephemeral <code>trycloudflare.com</code> tunnel or a persistent custom domain.",
@@ -885,6 +928,9 @@ vi: {
     row5_h: "Băng thông", row5_ws: "Dễ nghẽn khi truyền dữ liệu lớn", row5_x: "Cao & ổn định hơn",
     row6_h: "Khả năng ẩn mình", row6_ws: "Dễ bị DPI hiện đại nhận diện", row6_x: "Khó bị phát hiện — giống traffic upload file",
     transport_callout: "<strong>Tổng kết:</strong> WS là con ngựa thồ huyền thoại đã được kiểm chứng; xHTTP packet-up là chuẩn mực mới — ping thấp hơn, thông lượng cao hơn, chống DPI tốt hơn. <code>main.py</code> hỗ trợ chạy song song cả hai qua <code>TRANSPORT=websocket,xhttp</code>.",
+    speedtest_title: "Speedtest Thực Tế",
+    speedtest_ws_caption: "VLESS + WebSocket + TLS — 166 Mbps tải xuống / 41.3 Mbps tải lên",
+    speedtest_xhttp_caption: "VLESS + xHTTP + TLS + ALPN H3 — 183 Mbps tải xuống / 188 Mbps tải lên",
     features_title: "Các Tính Năng Của Script",
     feat1_h: "Điều Phối Môi Trường Tự Động", feat1_b: "Tự động kiểm tra và tạo các phụ thuộc <code>.env</code> cục bộ.",
     feat2_h: "Tunnel Tạm Thời & Cố Định", feat2_b: "Tự động nhận diện để khởi chạy tunnel <code>trycloudflare.com</code> tạm thời hoặc domain riêng cố định.",
