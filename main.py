@@ -498,9 +498,11 @@ def main():
         if TRANSPORT == "xhttp":
             net_type = "xhttp"
             mode_param = f"&mode={XHTTP_MODE}"
+            alpn_param_tls = "&alpn=h3%2Ch2"
         else:
             net_type = "ws"
             mode_param = ""
+            alpn_param_tls = ""
 
         payloads = []
         sni_list = fake_sni.split(",");
@@ -521,12 +523,12 @@ def main():
                 payloads.extend([
                     f"vless://{uuid_str}@{sni}:443?type=ws&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}#{encoded_remark}%20WS%20TLS",
                     f"vless://{uuid_str}@{sni}:80?type=ws&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}#{encoded_remark}%20WS%20No%20TLS",
-                    f"vless://{uuid_str}@{sni}:443?type=xhttp&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}&mode={XHTTP_MODE}#{encoded_remark}%20XHTTP%20TLS",
+                    f"vless://{uuid_str}@{sni}:443?type=xhttp&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}&mode={XHTTP_MODE}&alpn=h3%2Ch2#{encoded_remark}%20XHTTP%20TLS",
                     f"vless://{uuid_str}@{sni}:80?type=xhttp&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}&mode={XHTTP_MODE}#{encoded_remark}%20XHTTP%20No%20TLS",
                 ])
             else:
                 payloads.extend([
-                    f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_remark}%20TLS",
+                    f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}{alpn_param_tls}#{encoded_remark}%20TLS",
                     f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_remark}%20NO%20TLS"
                 ])
 
