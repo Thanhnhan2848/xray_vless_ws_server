@@ -28,7 +28,7 @@ def main():
         "FAKE_SNI": "api24-normal-alisg.tiktokv.com,vnpt.theworkpc.com",
         "WS_PATH": "/tiktok4g",
         "WS_HOST": "trycloudflare.com",
-        "TRANSPORT": "websocket",
+        "TRANSPORT": "websocket,xhttp",
         "XHTTP_MODE": "packet-up",
         "ENABLE_WARP": "false",
         "WEBHOOK_URL": "",
