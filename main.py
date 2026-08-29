@@ -29,6 +29,7 @@ def main():
         "WS_PATH": "/tiktok4g",
         "WS_HOST": "trycloudflare.com",
         "TRANSPORT": "websocket",
+        "XHTTP_MODE": "packet-up",
         "ENABLE_WARP": "false",
         "WEBHOOK_URL": "",
         "TUNNEL_TOKEN": "",
@@ -114,15 +115,26 @@ def main():
             print("[ERROR] RUN_MODE=direct requires WS_HOST to be your Cloudflare-proxied domain.")
             return
 
-    # TRANSPORT: "websocket" only for now — xhttp is temporarily disabled
-    # (was unstable / needs more testing behind Cloudflare Tunnel).
-    TRANSPORT = get_os_env("TRANSPORT").strip().lower()
-    if TRANSPORT == "xhttp":
-        print("[!] TRANSPORT=xhttp is temporarily disabled, falling back to 'websocket'.")
-        TRANSPORT = "websocket"
-    elif TRANSPORT != "websocket":
-        print(f"[!] Unknown TRANSPORT '{TRANSPORT}', falling back to 'websocket'.")
-        TRANSPORT = "websocket"
+    # Transport can be WebSocket, xHTTP, or both (comma-separated).
+    requested_transports = [item.strip().lower() for item in get_os_env("TRANSPORT").split(",") if item.strip()]
+    allowed_transports = {"websocket", "xhttp"}
+    TRANSPORTS = []
+    for transport in requested_transports:
+        if transport in allowed_transports and transport not in TRANSPORTS:
+            TRANSPORTS.append(transport)
+        elif transport not in allowed_transports:
+            print(f"[!] Unknown transport '{transport}' ignored.")
+    if not TRANSPORTS:
+        print("[!] No valid transport configured; falling back to 'websocket'.")
+        TRANSPORTS = ["websocket"]
+    TRANSPORT = ",".join(TRANSPORTS)
+    DUAL_TRANSPORT = len(TRANSPORTS) == 2
+
+    XHTTP_MODE = get_os_env("XHTTP_MODE").strip().lower()
+    allowed_xhttp_modes = {"packet-up", "stream-up", "stream-one"}
+    if XHTTP_MODE not in allowed_xhttp_modes:
+        print(f"[!] Unknown XHTTP_MODE '{XHTTP_MODE}', falling back to 'packet-up'.")
+        XHTTP_MODE = "packet-up"
 
     # Parse multi-port configuration
     # Supported formats: "8888" (defaults to 0.0.0.0), "127.0.0.1:8888", "0.0.0.0:443,0.0.0.0:80"
@@ -148,7 +160,7 @@ def main():
         direct_ip, direct_port = inbound_ports[0]
         if direct_port != 80:
             print(f"[!] DIRECT MODE: origin is listening on port {direct_port}. Cloudflare Flexible expects an HTTP origin on port 80.")
-        print("[!] DIRECT MODE: origin leg is plaintext WebSocket (no TLS). Set Cloudflare SSL/TLS to 'Flexible'.")
+        print("[!] DIRECT MODE: origin leg is plaintext HTTP transport (WS/xHTTP, no TLS). Set Cloudflare SSL/TLS to 'Flexible'.")
 
     def send_webhook(data):
         if not WEBHOOK_URL:
@@ -210,81 +222,77 @@ def main():
             wgcf_outbound = json.load(f)
 
     # =========================================
-    # VLESS-WS CONFIG GENERATOR
+    # VLESS transport config generator
     # =========================================
-    def build_stream_settings():
-        return {
-            "network": "ws",
-            "security": "none",
-            "wsSettings": {
-                "path": WS_PATH,
-                "headers": {}
-            }
-        }
+    def build_stream_settings(transport):
+        if transport == "xhttp":
+            return {"network": "xhttp", "security": "none", "xhttpSettings": {"path": WS_PATH, "mode": XHTTP_MODE}}
+        return {"network": "ws", "security": "none", "wsSettings": {"path": WS_PATH, "headers": {}}}
 
+    # Dual transport uses separate loopback Xray inbounds and a TCP demux on
+    # the public endpoint. WebSocket Upgrade goes to WS; plain HTTP goes xHTTP.
+    WS_INTERNAL_OFFSET, XHTTP_INTERNAL_OFFSET = 20000, 30000
+    def internal_port_for(base_port, transport):
+        candidate = base_port + (WS_INTERNAL_OFFSET if transport == "websocket" else XHTTP_INTERNAL_OFFSET)
+        if candidate > 65535: raise ValueError(f"Cannot allocate internal {transport} port for {base_port}")
+        return candidate
+    def peek_is_websocket(conn, timeout=3.0):
+        conn.settimeout(timeout)
+        try: data = conn.recv(8192, socket.MSG_PEEK)
+        except OSError: data = b""
+        finally: conn.settimeout(None)
+        return b"upgrade: websocket" in data.lower()
+    def pipe_bytes(src, dst):
+        try:
+            while chunk := src.recv(65536): dst.sendall(chunk)
+        except OSError: pass
+        finally:
+            try: src.shutdown(socket.SHUT_RD)
+            except OSError: pass
+            try: dst.shutdown(socket.SHUT_WR)
+            except OSError: pass
+    def handle_demux_connection(client_conn, ws_port, xhttp_port):
+        try: backend_conn = socket.create_connection(("127.0.0.1", ws_port if peek_is_websocket(client_conn) else xhttp_port), timeout=5)
+        except OSError:
+            client_conn.close(); return
+        threading.Thread(target=pipe_bytes, args=(client_conn, backend_conn), daemon=True).start()
+        threading.Thread(target=pipe_bytes, args=(backend_conn, client_conn), daemon=True).start()
+    def start_demux_server(listen_ip, listen_port, ws_port, xhttp_port):
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((listen_ip if listen_ip != "0.0.0.0" else "", listen_port)); server.listen(128)
+        def accept_loop():
+            while True:
+                try: connection, _ = server.accept()
+                except OSError: break
+                threading.Thread(target=handle_demux_connection, args=(connection, ws_port, xhttp_port), daemon=True).start()
+        threading.Thread(target=accept_loop, daemon=True).start()
+        print(f"[*] Dual transport demux: {listen_ip}:{listen_port} -> ws:{ws_port}, xhttp:{xhttp_port}")
+        return server
+    def make_inbound(listen, port, transport):
+        return {"port": port, "listen": listen, "protocol": "vless", "sniffing": {"enabled": True, "destOverride": ["http", "tls"]}, "settings": {"clients": [{"id": UUID, "level": 0}], "decryption": "none"}, "streamSettings": build_stream_settings(transport)}
     def write_configs():
-        inbounds = []
+        inbounds, demux_servers = [], []
         for ip, port in inbound_ports:
-            inbounds.append({
-                "port": port,
-                "listen": ip,
-                "protocol": "vless",
-                "sniffing": {
-                    "enabled": True,
-                    "destOverride": ["http", "tls"]
-                },
-                "settings": {
-                    "clients": [
-                        {
-                            "id": UUID,
-                            "level": 0
-                        }
-                    ],
-                    "decryption": "none"
-                },
-                "streamSettings": build_stream_settings()
-            })
-
-        xray_config = {
-            "log": {
-                "loglevel": "debug"
-            },
-            "inbounds": inbounds,
-            "outbounds": [
-                {
-                    "protocol": "freedom",
-                    "settings": {
-                        "domainStrategy": "UseIPv4"
-                    }
-                }
-            ]
-        }
-
-        # Change outbound to WARP if enabled
-        if ENABLE_WARP and wgcf_outbound:
-            xray_config["outbounds"].insert(0, wgcf_outbound)
-
-        if os.path.exists("config.json"):
-            try: os.remove("config.json")
-            except: pass
-
-        with open("config.json", "w", encoding="utf-8") as f:
-            json.dump(xray_config, f, indent=2)
-
-    write_configs()
-
-    print(f"[*] Launching XRAY with multi-port inbounds...")
-    # Using 'run' with extra environment or fallback handling is ideal,
-    # but natively Xray logs the error to stderr and continues if other ports work.
-    xp = subprocess.Popen(
-        [XRAY_BIN, "run", "-c", "config.json"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding='utf-8',
-        errors='replace'
-    )
-
+            if DUAL_TRANSPORT:
+                ws_port, xhttp_port = internal_port_for(port, "websocket"), internal_port_for(port, "xhttp")
+                inbounds.extend([make_inbound("127.0.0.1", ws_port, "websocket"), make_inbound("127.0.0.1", xhttp_port, "xhttp")])
+                demux_servers.append((ip, port, ws_port, xhttp_port))
+            else: inbounds.append(make_inbound(ip, port, TRANSPORTS[0]))
+        xray_config = {"log": {"loglevel": "debug"}, "inbounds": inbounds, "outbounds": [{"protocol": "freedom", "settings": {"domainStrategy": "UseIPv4"}}]}
+        if ENABLE_WARP and wgcf_outbound: xray_config["outbounds"].insert(0, wgcf_outbound)
+        with open("config.json", "w", encoding="utf-8") as config_file: json.dump(xray_config, config_file, indent=2)
+        return demux_servers
+    demux_intents = write_configs()
+    print("[*] Launching XRAY with configured transport inbounds...")
+    xp = subprocess.Popen([XRAY_BIN, "run", "-c", "config.json"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+    demux_listeners = []
+    if DUAL_TRANSPORT:
+        time.sleep(1)
+        for ip, port, ws_port, xhttp_port in demux_intents:
+            try: demux_listeners.append(start_demux_server(ip, port, ws_port, xhttp_port))
+            except OSError as error:
+                print(f"[ERROR] Failed to bind dual transport demux on {ip}:{port}: {error}"); xp.terminate(); return
     def launch_cloudflared():
         # direct mode does not use cloudflared at all.
         if RUN_MODE == "direct":
@@ -395,95 +403,55 @@ def main():
     def print_vless_links(tunnel_host, uuid_str, fake_sni, ws_path):
         import urllib.parse
         encoded_path = urllib.parse.quote(ws_path, safe='')
-
-        tunnel_host_info = tunnel_host
-        if WS_HOST and WS_HOST != "trycloudflare.com":
-            tunnel_host_info = WS_HOST
-
-        net_type = "ws"
-        mode_param = ""
-
+        tunnel_host_info = WS_HOST if WS_HOST and WS_HOST != "trycloudflare.com" else tunnel_host
         payloads = []
-
-        sni_list = fake_sni.split(",")
-
         country_flag = flag_emoji(COUNTRY_CODE)
         country_prefix = f"[{country_flag}] {COUNTRY_CODE} | " if country_flag else ""
 
-        for idx, sni_entry in enumerate(sni_list):
-            sni_entry = sni_entry.strip()
-            if "#" in sni_entry:
-                sni, remark = sni_entry.split("#", 1)
-                sni = sni.strip()
-                remark = remark.strip()
-            else:
-                sni = sni_entry
-                remark = ""
+        def add_link(sni, transport, label):
+            params = f"type={'ws' if transport == 'websocket' else 'xhttp'}&encryption=none&security="
+            xhttp_params = f"&mode={XHTTP_MODE}" if transport == "xhttp" else ""
+            if PORT_MODE in ("443", "both"):
+                tls_params = f"tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{xhttp_params}"
+                if transport == "xhttp": tls_params += "&alpn=h3%2Ch2"
+                payloads.append(f"vless://{uuid_str}@{sni}:443?{params}{tls_params}#{urllib.parse.quote(label + ' ' + ('XHTTP' if transport == 'xhttp' else 'WS') + ' 443', safe='')}")
+            if PORT_MODE in ("80", "both") and RUN_MODE != "direct":
+                payloads.append(f"vless://{uuid_str}@{sni}:80?{params}&path={encoded_path}&host={tunnel_host_info}{xhttp_params}#{urllib.parse.quote(label + ' ' + ('XHTTP' if transport == 'xhttp' else 'WS') + ' 80', safe='')}")
 
+        for sni_entry in fake_sni.split(","):
+            sni_entry = sni_entry.strip()
+            if not sni_entry: continue
+            sni, separator, remark = sni_entry.partition("#")
+            sni, remark = sni.strip(), remark.strip()
             base_label = remark or FRIENDLY_NAME_MAP.get(sni) or sni
             label = f"{country_prefix}{base_label}"
-            encoded_label = urllib.parse.quote(label, safe='')
+            for transport in TRANSPORTS:
+                add_link(sni, transport, label)
 
-            # TLS link (port 443)
-            if PORT_MODE in ("443", "both"):
-                payloads.append(
-                    f"vless://{uuid_str}@{sni}:443?type={net_type}&encryption=none&security=tls&path={encoded_path}&host={tunnel_host_info}&sni={tunnel_host_info}{mode_param}#{encoded_label}%20443"
-                )
-
-            # NO-TLS link (port 80, only for tunnel modes)
-            if PORT_MODE in ("80", "both") and RUN_MODE != "direct":
-                payloads.append(
-                    f"vless://{uuid_str}@{sni}:80?type={net_type}&encryption=none&security=&path={encoded_path}&host={tunnel_host_info}{mode_param}#{encoded_label}%2080"
-                )
-
-        if RUN_MODE == "direct":
-            print("\n" + "="*70)
-            print(" DIRECT MODE (Cloudflare proxied DNS -> origin :80)")
-            print("="*70)
-            print("="*70 + "\n")
-        else:
-            print("\n" + "="*70)
-            print(" CONNECTED TO CLOUDFLARE TUNNEL")
-            print("="*70)
-            print("="*70 + "\n")
-
-        with open("frp_info.config", "w", encoding='utf-8') as f:
-            for payload in payloads:
-                f.write(payload)
-                f.write("\n") if payloads.index(payload) < len(payloads)-1 else None
-                print(payload) if DEBUG_MODE else None
-            print("Written to frp_info.config")
+        print("\n" + "=" * 70)
+        print(" DIRECT MODE (Cloudflare proxied DNS -> origin :80)" if RUN_MODE == "direct" else " CONNECTED TO CLOUDFLARE TUNNEL")
+        print("=" * 70 + "\n")
+        with open("frp_info.config", "w", encoding="utf-8") as links_file:
+            links_file.write("\n".join(payloads) + ("\n" if payloads else ""))
+        print("Written to frp_info.config")
+        if DEBUG_MODE:
+            for payload in payloads: print(payload)
 
         if SUBSCRIPTION_SYNC_URL:
             if not SUBSCRIPTION_SYNC_TOKEN or not SUBSCRIPTION_NODE_ID:
                 print("[!] Subscription sync skipped: URL requires token and node ID.")
             else:
                 try:
-                    response = requests.post(
-                        SUBSCRIPTION_SYNC_URL,
-                        json={"node_id": SUBSCRIPTION_NODE_ID, "payloads": payloads},
-                        headers={"Authorization": f"Bearer {SUBSCRIPTION_SYNC_TOKEN}"},
-                        timeout=15,
-                    )
+                    response = requests.post(SUBSCRIPTION_SYNC_URL, json={"node_id": SUBSCRIPTION_NODE_ID, "payloads": payloads}, headers={"Authorization": f"Bearer {SUBSCRIPTION_SYNC_TOKEN}"}, timeout=15)
                     response.raise_for_status()
                     print(f"[OK] Subscription synced: node {SUBSCRIPTION_NODE_ID}")
                 except requests.RequestException as error:
                     print(f"[!] Subscription sync failed (server still running): {error}")
 
-        frp_info = {
-            "payloads": payloads,
-            "ip": get_public_url(),
-            "wshost": tunnel_host,
-            "wspath": ws_path,
-            "transport": TRANSPORT,
-            "start_time": START_TIME,
-        }
-
+        frp_info = {"payloads": payloads, "ip": get_public_url(), "wshost": tunnel_host, "wspath": ws_path, "transport": TRANSPORT, "xhttp_mode": XHTTP_MODE if "xhttp" in TRANSPORTS else None, "start_time": START_TIME}
         send_webhook(frp_info)
-        with open("frp_info.json", "w", encoding='utf-8') as f:
-            json.dump(frp_info, f, indent=4)
-            print("Written to frp_info.json")
-
+        with open("frp_info.json", "w", encoding="utf-8") as info_file: json.dump(frp_info, info_file, indent=4)
+        print("Written to frp_info.json")
     # Direct mode has no cloudflared process to scrape a hostname from,
     # so generate links immediately from the configured WS_HOST.
     if RUN_MODE == "direct":

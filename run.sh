@@ -20,14 +20,20 @@ DEF_FAKE_SNI="api24-normal-alisg.tiktokv.com#Free Tiktok,vnpt.theworkpc.com#Free
 DEF_WS_PATH="/tiktok4g"
 DEF_WS_HOST="trycloudflare.com"
 DEF_TRANSPORT="websocket"
+DEF_XHTTP_MODE="packet-up"
 
-RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; COUNTRY_CODE=""; CUSTOM_DOMAIN=""; PORT_MODE=""; SUBSCRIPTION_SYNC_URL=""; SUBSCRIPTION_SYNC_TOKEN=""; SUBSCRIPTION_NODE_ID=""
+RUN_MODE=""; PORT=""; UUID=""; FAKE_SNI=""; WS_PATH=""; WS_HOST=""; TUNNEL_TOKEN=""; ENABLE_WARP="false"; WEBHOOK_URL=""; TRANSPORT="websocket"; XHTTP_MODE="packet-up"; COUNTRY_CODE=""; CUSTOM_DOMAIN=""; PORT_MODE=""; SUBSCRIPTION_SYNC_URL=""; SUBSCRIPTION_SYNC_TOKEN=""; SUBSCRIPTION_NODE_ID=""
 
 header(){ echo; echo -e "${CYAN}===================================================${NC}"; echo -e "${GREEN} $1${NC}"; echo -e "${CYAN}===================================================${NC}"; }
 ok(){ echo -e " ${GREEN}[OK]${NC} $1"; }
 warn(){ echo -e " ${YELLOW}[!]${NC}  $1"; }
 err(){ echo -e " ${RED}[ERR]${NC} $1"; }
 info(){ echo -e " ${BLUE}[i]${NC}  $1"; }
+setup_step(){
+    echo
+    echo -e " ${CYAN}[$1]${NC} ${GREEN}$2${NC}"
+    echo " ───────────────────────────────────────"
+}
 pause_next(){ echo; read -r -p " Press Enter to continue..." _; }
 ask_yes_no(){ local ans hint default="${2:-y}"; [ "$default" = "y" ] && hint="Y/n" || hint="y/N"; read -r -p " $1 [$hint]: " ans; ans="${ans:-$default}"; [[ "$ans" =~ ^[Yy]$ ]]; }
 ask_val(){ local prompt="$1" default="$2" ans; read -r -p " $prompt [$default]: " ans; [ -n "$ans" ] && echo "$ans" || echo "$default"; }
@@ -59,6 +65,38 @@ ask_fake_sni(){
         *) FAKE_SNI="$choice" ;;
     esac
     ok "FAKE_SNI: $FAKE_SNI"
+}
+ask_transport(){
+    local choice mode_choice default_choice="1"
+    case "$TRANSPORT" in
+        xhttp) default_choice="2" ;;
+        websocket,xhttp|xhttp,websocket) default_choice="3" ;;
+    esac
+    echo
+    echo -e " ${BLUE}[i]${NC}  Transport selection:"
+    echo "   1) WebSocket (stable / widest client support)"
+    echo "   2) xHTTP (modern HTTP transport)"
+    echo "   3) Both WebSocket + xHTTP"
+    read -r -p " Choose [1/2/3] [$default_choice]: " choice
+    choice="${choice:-$default_choice}"
+    case "$choice" in
+        1) TRANSPORT="websocket" ;;
+        2) TRANSPORT="xhttp" ;;
+        3) TRANSPORT="websocket,xhttp" ;;
+        *) warn "Invalid selection; keeping $TRANSPORT." ;;
+    esac
+    if [[ "$TRANSPORT" == *xhttp* ]]; then
+        echo "   xHTTP mode: 1) packet-up  2) stream-up  3) stream-one"
+        case "$XHTTP_MODE" in stream-up) mode_choice=2 ;; stream-one) mode_choice=3 ;; *) mode_choice=1 ;; esac
+        read -r -p " Choose xHTTP mode [1/2/3] [$mode_choice]: " choice
+        choice="${choice:-$mode_choice}"
+        case "$choice" in 1) XHTTP_MODE="packet-up" ;; 2) XHTTP_MODE="stream-up" ;; 3) XHTTP_MODE="stream-one" ;; *) warn "Invalid mode; keeping $XHTTP_MODE." ;; esac
+    fi
+    if [[ "$TRANSPORT" == *xhttp* ]]; then
+        ok "Transport: $TRANSPORT (xHTTP mode: $XHTTP_MODE)"
+    else
+        ok "Transport: $TRANSPORT"
+    fi
 }
 ask_port_mode(){
     local choice
@@ -145,8 +183,15 @@ termux_bootstrap(){
     echo
     info "Checking Termux packages..."
     if ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
-        info "Installing python & git..."
-        pkg install python git -y 2>&1 | tail -5
+        info "Installing python, pip, build tools and git..."
+        if ! pkg install -y python python-pip make pkg-config git; then
+            err "Termux package install failed. Run 'termux-change-repo', select a working mirror, then run 'pkg update && pkg upgrade -y' and retry."
+            return 1
+        fi
+    fi
+    if ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1 || ! python3 -m pip --version >/dev/null 2>&1; then
+        err "Python, pip, or git is still unavailable. Fix the Termux mirror with 'termux-change-repo' and retry."
+        return 1
     fi
     ok "Termux packages ready."
 }
@@ -166,7 +211,7 @@ detect_python(){
             echo python; return
         fi
     fi
-    err "Python 3 not found. Install: sudo apt install python3 python3-venv python3-pip"
+    if $IS_TERMUX; then err "Python 3 not found. Run: pkg install python python-pip"; else err "Python 3 not found. Install: sudo apt install python3 python3-venv python3-pip"; fi
 }
 
 install_venv_package(){
@@ -183,6 +228,16 @@ ensure_python_deps(){
     local py="$1"
     if "$py" -c "import dotenv, requests, zstandard" 2>/dev/null; then return 0; fi
     warn "Missing Python deps. Installing..."
+
+    # Termux ships pip with Python and does not use Debian's python3-venv/
+    # sudo/apt workflow. Keep packages in Termux's user environment.
+    if $IS_TERMUX; then
+        if "$py" -m pip install --user -q python-dotenv requests zstandard; then
+            "$py" -c "import dotenv, requests, zstandard" 2>/dev/null && { ok "Termux Python deps installed."; return 0; }
+        fi
+        err "Failed to install Termux Python deps. Check the selected mirror/network, run 'pkg update', then retry."
+        return 1
+    fi
 
     # If in a venv already
     if "$py" -c 'import sys; sys.exit(0 if hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix) else 1)' 2>/dev/null; then
@@ -242,7 +297,7 @@ write_env(){
     {
         echo "RUN_MODE=$RUN_MODE"; echo "PORT=$PORT"; echo "XRAY_UUID=$UUID"
         echo "FAKE_SNI=$FAKE_SNI"; echo "WS_PATH=$WS_PATH"; echo "WS_HOST=$WS_HOST"
-        echo "TRANSPORT=$TRANSPORT"; echo "ENABLE_WARP=$ENABLE_WARP"
+        echo "TRANSPORT=$TRANSPORT"; echo "XHTTP_MODE=$XHTTP_MODE"; echo "ENABLE_WARP=$ENABLE_WARP"
         echo "WEBHOOK_URL=$WEBHOOK_URL"; echo "TUNNEL_TOKEN=$TUNNEL_TOKEN"
         echo "COUNTRY_CODE=$COUNTRY_CODE"
         echo "CUSTOM_DOMAIN=$CUSTOM_DOMAIN"
@@ -257,7 +312,8 @@ load_existing(){
     UUID="$(env_get XRAY_UUID)"; FAKE_SNI="$(env_get FAKE_SNI)"
     WS_PATH="$(env_get WS_PATH)"; WS_HOST="$(env_get WS_HOST)"
     TUNNEL_TOKEN="$(env_get TUNNEL_TOKEN)"; ENABLE_WARP="$(env_get ENABLE_WARP)"
-    WEBHOOK_URL="$(env_get WEBHOOK_URL)"; TRANSPORT="$(env_get TRANSPORT)"
+    WEBHOOK_URL="$(env_get WEBHOOK_URL)"; TRANSPORT="$(env_get TRANSPORT)"; XHTTP_MODE="$(env_get XHTTP_MODE)"
+    XHTTP_MODE="${XHTTP_MODE:-$DEF_XHTTP_MODE}"
     COUNTRY_CODE="$(env_get COUNTRY_CODE)"
     CUSTOM_DOMAIN="$(env_get CUSTOM_DOMAIN)"
     PORT_MODE="$(env_get PORT_MODE)"
@@ -352,17 +408,31 @@ quick_mode(){
     header "1. Quick Tunnel (trycloudflare.com)"
     info "No domain required. Cloudflare gives a random hostname each run."
     load_existing
+
+    setup_step "1/7" "Server identity"
     UUID="$(ask_val "VLESS UUID" "${UUID:-$(uuid_gen)}")"
+
+    setup_step "2/7" "Fake SNI"
     ask_fake_sni
-    WS_PATH="$(ask_val "WebSocket path" "${WS_PATH:-$DEF_WS_PATH}")"
+
+    setup_step "3/7" "Transport endpoint"
+    WS_PATH="$(ask_val "WebSocket/xHTTP path" "${WS_PATH:-$DEF_WS_PATH}")"
+    TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_transport
+
+    setup_step "4/7" "VLESS link ports"
     RUN_MODE="quick_tunnel"; PORT="$DEF_PORT_QUICK"
-    # Save custom domain before overwriting (so named/direct can reuse it)
     [ -n "$WS_HOST" ] && [ "$WS_HOST" != "$DEF_WS_HOST" ] && CUSTOM_DOMAIN="$WS_HOST"
     WS_HOST="$DEF_WS_HOST"
-    TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
     ask_port_mode
+
+    setup_step "5/7" "Optional subscription hub"
     ask_subscription_sync || return 1
+
+    setup_step "6/7" "Node location"
     ask_country
+
+    setup_step "7/7" "Save and start"
     write_env
     start_server
 }
@@ -370,25 +440,39 @@ quick_mode(){
 named_mode(){
     header "2. Named Cloudflare Tunnel + custom domain"
     info "Requires Cloudflare Zero Trust."
-    echo -e " ${CYAN}In Zero Trust dashboard:${NC}"
+    echo -e " ${CYAN}Before continuing in Zero Trust:${NC}"
     echo "   1. Networks -> Tunnels -> Create -> Cloudflared -> copy token."
     echo -e "   2. Public Hostname -> Service = ${GREEN}http://127.0.0.1:8888${NC}"
     echo
     read -r -p " Press Enter when ready..." _
     load_existing
+
+    setup_step "1/7" "Domain and tunnel credentials"
     local def_host="${WS_HOST:-}"
     [ "$def_host" = "trycloudflare.com" ] || [ -z "$def_host" ] && def_host="${CUSTOM_DOMAIN:-}"
     WS_HOST="$(ask_val "Domain (e.g. vless.example.com)" "$def_host")"
     TUNNEL_TOKEN="$(ask_val "Tunnel connector token" "${TUNNEL_TOKEN:-}")"
     [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Domain required."; return 1; }
     [ -z "$TUNNEL_TOKEN" ] && { err "Token required."; return 1; }
-    RUN_MODE="named_tunnel"; PORT="$DEF_PORT_NAMED"
-    UUID="${UUID:-$(uuid_gen)}"
+    RUN_MODE="named_tunnel"; PORT="$DEF_PORT_NAMED"; UUID="${UUID:-$(uuid_gen)}"
+
+    setup_step "2/7" "Fake SNI"
     ask_fake_sni
+
+    setup_step "3/7" "Transport endpoint"
     WS_PATH="${WS_PATH:-$DEF_WS_PATH}"; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_transport
+
+    setup_step "4/7" "VLESS link ports"
     ask_port_mode
+
+    setup_step "5/7" "Optional subscription hub"
     ask_subscription_sync || return 1
+
+    setup_step "6/7" "Node location"
     ask_country
+
+    setup_step "7/7" "Save and start"
     CUSTOM_DOMAIN="$WS_HOST"
     write_env
     start_server
@@ -397,30 +481,43 @@ named_mode(){
 direct_mode(){
     header "3. Direct Cloudflare proxied DNS -> VPS"
     info "No cloudflared. Cloudflare forwards to port 80."
-    echo -e " ${CYAN}In Cloudflare DNS:${NC}"
+    echo -e " ${CYAN}Before continuing in Cloudflare:${NC}"
     echo -e "   1. ${GREEN}vless.example.com -> A -> <VPS IP>${NC}, proxy ${GREEN}ON${NC} (orange cloud)"
     echo -e "   2. SSL/TLS -> ${GREEN}Flexible${NC}"
     echo -e "   3. Allow inbound TCP ${GREEN}80${NC} from Cloudflare IPs"
     echo
     read -r -p " Press Enter when ready..." _
     load_existing
+
+    setup_step "1/7" "Domain and origin listener"
     local def_host="${WS_HOST:-}"
     [ "$def_host" = "trycloudflare.com" ] || [ -z "$def_host" ] && def_host="${CUSTOM_DOMAIN:-}"
     WS_HOST="$(ask_val "Domain" "$def_host")"
     PORT="$(ask_val "Origin listen address:port" "$DEF_PORT_DIRECT")"
     [ -z "$WS_HOST" ] || [ "$WS_HOST" = "trycloudflare.com" ] && { err "Domain required."; return 1; }
     RUN_MODE="direct"; UUID="${UUID:-$(uuid_gen)}"
+
+    setup_step "2/7" "Fake SNI"
     ask_fake_sni
-    WS_PATH="${WS_PATH:-$DEF_WS_PATH}"
-    TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+
+    setup_step "3/7" "Transport endpoint"
+    WS_PATH="${WS_PATH:-$DEF_WS_PATH}"; TRANSPORT="${TRANSPORT:-$DEF_TRANSPORT}"
+    ask_transport
+
+    setup_step "4/7" "VLESS link ports"
     ask_port_mode
+
+    setup_step "5/7" "Optional subscription hub"
     ask_subscription_sync || return 1
+
+    setup_step "6/7" "Node location"
     ask_country
+
+    setup_step "7/7" "Save and start"
     CUSTOM_DOMAIN="$WS_HOST"
     write_env
     start_server
 }
-
 # ==================== Service manager ====================
 service_manager(){
     if $IS_TERMUX; then

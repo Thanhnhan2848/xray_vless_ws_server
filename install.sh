@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 REPO="https://github.com/takeshi7502/xray_vless_ws_server.git"
 INSTALL_DIR="${HOME}/vless"
@@ -15,7 +15,10 @@ echo
 if ! command -v git >/dev/null 2>&1; then
     echo -e " ${YELLOW}[!]${NC} git not found. Installing..."
     if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
-        pkg install git -y 2>&1 | tail -3
+        if ! pkg install -y git; then
+            echo -e " ${RED}[ERR]${NC} Failed to install git. Run 'termux-change-repo', choose a working mirror, then retry."
+            exit 1
+        fi
     elif command -v apt-get >/dev/null 2>&1; then
         sudo apt-get update -qq && sudo apt-get install -y -qq git
     elif command -v yum >/dev/null 2>&1; then

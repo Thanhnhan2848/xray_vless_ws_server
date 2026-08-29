@@ -1,6 +1,6 @@
 /*
 Cloudflare Worker script to dynamically configure
-the target host and path for WebSocket proxying.
+the target host and path for WebSocket / XHTTP proxying.
 Created by: HuskyDG
 */
 
@@ -108,10 +108,19 @@ export default {
     let entryPath = (GLOBAL_ENTRY_PATH)? GLOBAL_ENTRY_PATH : targetPath;
     if (!entryPath.startsWith("/")) entryPath = "/" + entryPath;
 
+    const isWebSocketUpgrade = request.headers.get("Upgrade") === "websocket";
+
+    // XHTTP clients append a per-session sub-path after the configured path
+    // (e.g. "/tiktok4g/<sessionId>"), so match on prefix rather than exact
+    // equality. WebSocket still requires an exact match since it has no
+    // sub-path concept.
+    const exactMatch = url.pathname === entryPath;
+    const prefixMatch = url.pathname === entryPath || url.pathname.startsWith(entryPath + "/");
+
     // ==========================================
     // FORWARD WEBSOCKET PROXY LOGIC
     // ==========================================
-    if (request.headers.get("Upgrade") === "websocket" && url.pathname === entryPath) {
+    if (isWebSocketUpgrade && exactMatch) {
       const targetUrl = new URL(`${targetHost}${targetPath}`);
 
       const newHeaders = new Headers(request.headers);
@@ -120,6 +129,28 @@ export default {
       return fetch(targetUrl.toString(), {
         method: "GET",
         headers: newHeaders
+      });
+    }
+
+    // ==========================================
+    // FORWARD XHTTP (plain HTTP GET/POST/PUT) PROXY LOGIC
+    // Used for VLESS transport=xhttp (packet-up / stream-up / stream-one).
+    // ==========================================
+    if (!isWebSocketUpgrade && prefixMatch) {
+      const suffix = url.pathname.slice(entryPath.length); // e.g. "/<sessionId>" or ""
+      const targetUrl = new URL(`${targetHost}${targetPath}${suffix}${url.search}`);
+
+      const newHeaders = new Headers(request.headers);
+      newHeaders.set("Host", targetUrl.host);
+
+      const hasBody = request.method !== "GET" && request.method !== "HEAD";
+
+      return fetch(targetUrl.toString(), {
+        method: request.method,
+        headers: newHeaders,
+        body: hasBody ? request.body : undefined,
+        // Required by the Workers runtime when streaming a request body.
+        duplex: hasBody ? "half" : undefined
       });
     }
 
