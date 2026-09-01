@@ -368,9 +368,10 @@ def main():
                 errors='replace'
             )
 
-        print(f"[*] Launching Cloudflare Tunnel pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
+        tunnel_protocol = "http2" if is_termux else "auto"
+        print(f"[*] Launching Cloudflare Tunnel ({tunnel_protocol}) pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
         return subprocess.Popen(
-            [CLF_BIN, "tunnel", "--protocol", "auto", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
+            [CLF_BIN, "tunnel", "--protocol", tunnel_protocol, "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -381,6 +382,7 @@ def main():
     clp = launch_cloudflared()
 
     cloudflare_url = None
+    published_link_host = None
 
     try:
         logger = RealtimeLogger(port=9999, password=None)
@@ -406,7 +408,7 @@ def main():
             pass
 
     def monitor_cloudflare(pipe):
-        nonlocal cloudflare_url
+        nonlocal cloudflare_url, published_link_host
         ansi_escape = re.compile(r'\x1b\[[0-9;]*[mK]')
         try:
             with pipe:
@@ -420,9 +422,10 @@ def main():
                         # (WS_HOST), not something printed to stdout. Instead,
                         # watch for a "connection registered" log line to know
                         # the tunnel is actually up, then print links once.
-                        if cloudflare_url is None and re.search(r'[Rr]egistered tunnel connection', clean_line):
+                        if published_link_host != WS_HOST and re.search(r'[Rr]egistered tunnel connection', clean_line):
                             cloudflare_url = WS_HOST
                             print_vless_links(cloudflare_url, UUID, FAKE_SNI, WS_PATH)
+                            published_link_host = cloudflare_url
                         continue
 
                     match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', clean_line)
@@ -432,7 +435,9 @@ def main():
                             if cloudflare_url:
                                 print(f"[*] Detected new tunnel domain: {new_url} (was: {cloudflare_url})")
                             cloudflare_url = new_url
-                            print_vless_links(cloudflare_url, UUID, FAKE_SNI, WS_PATH)
+                    if cloudflare_url and published_link_host != cloudflare_url and re.search(r'[Rr]egistered tunnel connection', clean_line):
+                        print_vless_links(cloudflare_url, UUID, FAKE_SNI, WS_PATH)
+                        published_link_host = cloudflare_url
         except Exception as e:
             # print(e)
             pass
