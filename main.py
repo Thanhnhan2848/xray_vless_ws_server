@@ -416,10 +416,6 @@ def main():
             # print(e)
             pass
 
-    threading.Thread(target=monitor_xray, args=(xp.stdout,), daemon=True).start()
-    if clp is not None:
-        threading.Thread(target=monitor_cloudflare, args=(clp.stdout,), daemon=True).start()
-
     # Friendly name map for known FAKE_SNI hostnames
     FRIENDLY_NAME_MAP = {
         "api24-normal-alisg.tiktokv.com": "Free Tiktok",
@@ -466,9 +462,13 @@ def main():
         print("=" * 70 + "\n")
         with open("frp_info.config", "w", encoding="utf-8") as links_file:
             links_file.write("\n".join(payloads) + ("\n" if payloads else ""))
-        print("Written to frp_info.config")
-        if DEBUG_MODE:
-            for payload in payloads: print(payload)
+        print(" VLESS LINKS (server continues running)")
+        print("-" * 70)
+        for payload in payloads:
+            print(payload)
+        print("-" * 70)
+        print("[OK] Links were also saved to: frp_info.config")
+        print("[i] To view them again from another Termux session: cat ~/vless/frp_info.config")
 
         if SUBSCRIPTION_SYNC_URL:
             if not SUBSCRIPTION_SYNC_TOKEN or not SUBSCRIPTION_NODE_ID:
@@ -485,6 +485,13 @@ def main():
         send_webhook(frp_info)
         with open("frp_info.json", "w", encoding="utf-8") as info_file: json.dump(frp_info, info_file, indent=4)
         print("Written to frp_info.json")
+
+    # Start log readers only after print_vless_links exists. A Quick Tunnel can
+    # return its hostname immediately on fast connections.
+    threading.Thread(target=monitor_xray, args=(xp.stdout,), daemon=True).start()
+    if clp is not None:
+        threading.Thread(target=monitor_cloudflare, args=(clp.stdout,), daemon=True).start()
+
     # Direct mode has no cloudflared process to scrape a hostname from,
     # so generate links immediately from the configured WS_HOST.
     if RUN_MODE == "direct":
