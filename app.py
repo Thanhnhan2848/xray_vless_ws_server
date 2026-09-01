@@ -17,7 +17,7 @@ def health():
 def run_main():
     try:
         # Ép Xray dùng cổng nội bộ, không đụng cổng của Render
-        os.environ["PORT"] = "127.0.0.1:8888"
+        os.environ["PORT"] = "127.0.0.1:10000"
         from main import main
         main()
     except Exception as e:
