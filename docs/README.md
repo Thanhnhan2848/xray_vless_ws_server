@@ -18,6 +18,19 @@ pkg install curl -y && bash <(curl -fsSL https://raw.githubusercontent.com/takes
 
 The install script clones the repo to `~/vless` and launches the interactive menu.
 
+### Windows (native, no WSL)
+
+Install Python 3.9+ first, then clone the repository and double-click `run-windows.bat`.
+It opens an interactive menu equivalent to `run.sh`, installs Python dependencies,
+and runs the server directly in that PowerShell window. Close the window or press
+`Ctrl+C` to stop the server.
+
+```powershell
+git clone https://github.com/takeshi7502/xray_vless_ws_server.git
+cd xray_vless_ws_server
+.\run-windows.bat
+```
+
 Need one subscription URL for links from multiple VPS nodes? See [Multi-VPS subscription setup](MULTI_VPS_SUBSCRIPTION.md).
 
 Pick a mode:
@@ -105,7 +118,7 @@ PORT_MODE=both
 
 ## Running on a VPS
 
-Use the one-liner install above, or run `bash run.sh` for the guided interactive menu. The origin never terminates TLS itself; Cloudflare handles TLS on port 443.
+Use the one-liner install above, `bash run.sh` on Linux/Termux, or `run-windows.bat` on native Windows for the guided interactive menu. The origin never terminates TLS itself; Cloudflare handles TLS on port 443.
 
 ## Disclaimer
 

@@ -18,6 +18,18 @@ pkg install curl -y && bash <(curl -fsSL https://raw.githubusercontent.com/takes
 
 Script sẽ tự clone repo vào `~/vless` và mở menu cài đặt.
 
+### Windows native (không cần WSL)
+
+Cài Python 3.9+ trước, sau đó clone repo và chạy `run-windows.bat` bằng double-click.
+Script mở menu cấu hình tương đương `run.sh`, tự cài Python dependencies và chạy
+server trực tiếp trong cửa sổ PowerShell. Đóng cửa sổ hoặc nhấn `Ctrl+C` để dừng server.
+
+```powershell
+git clone https://github.com/takeshi7502/xray_vless_ws_server.git
+cd xray_vless_ws_server
+.\run-windows.bat
+```
+
 Muốn gộp link của nhiều VPS vào một subscription? Xem [hướng dẫn Multi-VPS](MULTI_VPS_SUBSCRIPTION.md).
 
 Chọn một chế độ:
@@ -105,7 +117,7 @@ PORT_MODE=both
 
 ## Chạy trên VPS
 
-Dùng lệnh cài một dòng ở trên, hoặc chạy `bash run.sh` cho menu tương tác. Origin không tự kết thúc TLS; Cloudflare xử lý TLS trên cổng 443.
+Dùng lệnh cài một dòng ở trên, chạy `bash run.sh` trên Linux/Termux, hoặc `run-windows.bat` trên Windows native cho menu tương tác. Origin không tự kết thúc TLS; Cloudflare xử lý TLS trên cổng 443.
 
 ## Lưu ý
 
