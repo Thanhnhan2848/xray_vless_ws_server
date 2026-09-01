@@ -87,7 +87,7 @@ def home():
     </head>
     <body>
         <div class="box sub">
-            <a href="/frp_info.config">https://freedatavina.onrender.com/frp_info.config</a>
+            <a href="/frp_info.config">/frp_info.config</a>
         </div>
 
         <div class="box">
