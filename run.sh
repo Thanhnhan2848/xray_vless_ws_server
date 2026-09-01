@@ -400,6 +400,13 @@ start_server(){
     rm -f "$SCRIPT_DIR/frp_info.config"
     if $IS_TERMUX; then
         prepare_python || return 1
+        if [ "$RUN_MODE" != "direct" ] && ! command -v cloudflared >/dev/null 2>&1; then
+            info "Quick/Named Tunnel can cloudflared. Dang cai package can thiet..."
+            if ! pkg install -y cloudflared; then
+                err "Cai cloudflared that bai. Hay kiem tra mirror/mang roi thu lai."
+                return 1
+            fi
+        fi
         echo
         info "Dang chay server truc tiep (che do Termux)..."
         info "Nhan Ctrl+C de dung server."

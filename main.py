@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import shutil
 import socket
 from urllib import request
 from sys import prefix
@@ -188,6 +189,13 @@ def main():
     XRAY_BIN = "./xray.exe" if platform.system().lower() == "windows" else "./xray"
     CLF_BIN = "./cloudflared.exe" if platform.system().lower() == "windows" else "./cloudflared"
     WGCF_BIN = "./wgcf-cli.exe" if platform.system().lower() == "windows" else "./wgcf-cli"
+
+    # Termux installs cloudflared into PATH instead of this project directory.
+    is_termux = bool(os.getenv("TERMUX_VERSION")) or "com.termux" in os.getenv("PREFIX", "")
+    if is_termux:
+        cloudflared_path = shutil.which("cloudflared")
+        if cloudflared_path:
+            CLF_BIN = cloudflared_path
 
     if not os.path.exists(XRAY_BIN):
         print(f"[ERROR] Unable to find xray path: {XRAY_BIN}")
