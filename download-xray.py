@@ -8,9 +8,16 @@ XRAY_VERSION = "v26.7.11"
 
 BASE_URL = f"https://github.com/XTLS/Xray-core/releases/download/{XRAY_VERSION}"
 
+def is_termux():
+    return bool(os.getenv("TERMUX_VERSION")) or "com.termux" in os.getenv("PREFIX", "")
+
 def get_os_name():
     sys = platform.system().lower()
     arch = platform.machine().lower()
+
+    # Termux reports Linux, but needs the Android Xray release.
+    if is_termux():
+        sys = "android"
 
     if sys == "windows":
         if arch in ["x86_64", "amd64", "x64"]:
@@ -25,6 +32,8 @@ def get_os_name():
     if sys == "android":
         if arch in ["aarch64", "arm64"]:
             return "android-arm64-v8a.zip", "xray"
+        if arch in ["armv7l", "arm"]:
+            return "android-arm32-v7a.zip", "xray"
         if arch in ["x86_64", "amd64", "x64"]:
             return "android-amd64.zip", "xray"
 
@@ -75,8 +84,8 @@ def install_xray():
 
     shutil.move(src, dst)
 
-    # chmod linux
-    if platform.system().lower() == "linux":
+    # Archives do not reliably preserve the executable bit on Android/Termux.
+    if os.name != "nt":
         os.chmod(dst, 0o755)
 
     print("Xray installed at:", dst)

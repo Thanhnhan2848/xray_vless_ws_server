@@ -197,7 +197,32 @@ def main():
         if cloudflared_path:
             CLF_BIN = cloudflared_path
 
-    if not os.path.exists(XRAY_BIN):
+    def xray_is_runnable():
+        if not os.path.isfile(XRAY_BIN) or not os.access(XRAY_BIN, os.X_OK):
+            return False
+        try:
+            subprocess.run(
+                [XRAY_BIN, "version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                timeout=15,
+            )
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    if is_termux and not xray_is_runnable():
+        print("[*] Termux needs a runnable Android Xray binary. Downloading a fresh copy...")
+        try:
+            xray_downloader.install_xray()
+        except Exception as error:
+            print(f"[ERROR] Could not install Xray for Termux: {error}")
+            return
+        if not xray_is_runnable():
+            print("[ERROR] Xray is still not executable. Ensure ~/vless is in Termux home, not /sdcard, then run bash run.sh again.")
+            return
+    elif not os.path.exists(XRAY_BIN):
         print(f"[ERROR] Unable to find xray path: {XRAY_BIN}")
         xray_downloader.install_xray()
     if RUN_MODE != "direct" and not os.path.exists(CLF_BIN):
