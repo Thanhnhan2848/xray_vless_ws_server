@@ -326,6 +326,32 @@ def main():
             try: demux_listeners.append(start_demux_server(ip, port, ws_port, xhttp_port))
             except OSError as error:
                 print(f"[ERROR] Failed to bind dual transport demux on {ip}:{port}: {error}"); xp.terminate(); return
+
+    def wait_for_xray_listener(timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            exit_code = xp.poll()
+            if exit_code is not None:
+                details = xp.stdout.read().strip() if xp.stdout else ""
+                print(f"[ERROR] Xray stopped during startup (exit code {exit_code}).")
+                if details:
+                    print(f"[XRAY ERROR] {details}")
+                return False
+            try:
+                with socket.create_connection((CLOUDFLARE_TARGET_IP, CLOUDFLARE_TARGET_PORT), timeout=0.5):
+                    print(f"[OK] Xray is listening at {CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}.")
+                    return True
+            except OSError:
+                time.sleep(0.25)
+
+        print(f"[ERROR] Xray did not open {CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT} within {timeout}s.")
+        return False
+
+    if not wait_for_xray_listener():
+        try: xp.terminate()
+        except OSError: pass
+        return
+
     def launch_cloudflared():
         # direct mode does not use cloudflared at all.
         if RUN_MODE == "direct":
@@ -344,7 +370,7 @@ def main():
 
         print(f"[*] Launching Cloudflare Tunnel pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
         return subprocess.Popen(
-            [CLF_BIN, "tunnel", "--protocol", "http2", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
+            [CLF_BIN, "tunnel", "--protocol", "auto", "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -372,15 +398,10 @@ def main():
         try:
             with pipe:
                 for line in iter(pipe.readline, ''):
-                    # Suppress or catch common permission denied / bind errors quietly for Termux environment
-                    if "Permission denied" in line or "EACCES" in line or "address already in use" in line:
-                        # Log silently to Web UI instead of crashing the main process stdout aggressively
-                        if logger:
-                            logger_push(f"[SILENT BIND WARNING] {line.strip()}", "XRAY")
-                        continue
-
                     if logger:
                         logger_push(line.strip(), "XRAY")
+                    if re.search(r"permission denied|eacces|address already in use|\berror\b|\bfailed\b", line, re.IGNORECASE):
+                        print(f"[XRAY ERROR] {line.strip()}")
         except Exception:
             pass
 
@@ -507,10 +528,10 @@ def main():
                     print("\n[!] WARNING: Xray process has stopped.")
                     break
             else:
-                # Termux workaround: We don't crash if Xray returns a code but cloudflared is still happily running on the local port 8888.
-                # However, if both stop or core configuration is broken, we terminate.
-                if xp.poll() is not None and clp.poll() is not None:
-                    print("\n[!] WARNING: Both processes have stopped.")
+                if xp.poll() is not None:
+                    print("\n[!] WARNING: Xray process has stopped; stopping Cloudflare Tunnel.")
+                    try: clp.terminate()
+                    except OSError: pass
                     break
 
                 # If only cloudflared died (e.g. quick tunnel dropped/restarted), relaunch it.
