@@ -372,7 +372,7 @@ UNIT
 wait_and_show_links(){
     # Doi main.py ghi frp_info.config
     local tries=0
-    while [ $tries -lt 30 ]; do
+    while [ $tries -lt 90 ]; do
         if [ -f "$SCRIPT_DIR/frp_info.config" ] && [ -s "$SCRIPT_DIR/frp_info.config" ]; then
             sleep 2  # cho main.py ghi xong
             echo
@@ -390,7 +390,7 @@ wait_and_show_links(){
         sleep 1
         tries=$((tries + 1))
     done
-    err "Het thoi gian doi link VLESS."
+    err "Het thoi gian doi link VLESS sau 90 giay."
     info "Kiem tra service: journalctl -u $SERVICE_NAME -e --no-pager -n 30"
     return 1
 }
