@@ -293,10 +293,10 @@ prepare_python(){
     PYBIN="$(detect_python)"
     [ -z "$PYBIN" ] && return 1
     ensure_python_deps "$PYBIN" || return 1
-    # Lay duong dan tuyet doi
+    # Keep a virtualenv interpreter path intact. Resolving its symlink points
+    # systemd at the base Python and drops packages installed in .venv.
     if [[ "$PYBIN" = /* ]]; then PYBIN_ABS="$PYBIN"
     else PYBIN_ABS="$(command -v "$PYBIN" 2>/dev/null)"; fi
-    PYBIN_ABS="$(readlink -f "$PYBIN_ABS" 2>/dev/null || echo "$PYBIN_ABS")"
     ok "Python san sang: $PYBIN_ABS"
 }
 
