@@ -368,7 +368,9 @@ def main():
                 errors='replace'
             )
 
-        tunnel_protocol = "http2" if is_termux else "auto"
+        # Quick Tunnels only need an outbound TCP connection and HTTP/2 avoids
+        # waiting for QUIC to fail on hosts or networks that block UDP.
+        tunnel_protocol = "http2" if RUN_MODE == "quick_tunnel" else "auto"
         print(f"[*] Launching Cloudflare Tunnel ({tunnel_protocol}) pointing to http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}...")
         return subprocess.Popen(
             [CLF_BIN, "tunnel", "--protocol", tunnel_protocol, "--url", f"http://{CLOUDFLARE_TARGET_IP}:{CLOUDFLARE_TARGET_PORT}"],
